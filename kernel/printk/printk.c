@@ -1724,10 +1724,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 	}
 
 	if (last_new_line) {
-		if (!print_wall_time && ts_sec >= 20) {
-			print_wall_time = 1;
-		}
-		if (print_wall_time) {
+		if (print_wall_time && ts_sec >= 20) {
 		    struct timespec64 tspec;
 		    struct rtc_time tm;
 			extern struct timezone sys_tz;
