@@ -66,6 +66,11 @@
 /* AHB2PHY read/write waite value */
 #define ONE_READ_WRITE_WAIT 0x11
 
+/* hack: define OP3 device */
+#ifndef CONFIG_MACH_MSM8996_15801
+#define CONFIG_MACH_MSM8996_15801
+#endif
+
 /* cpu to fix usb interrupt */
 static int cpu_to_affin;
 module_param(cpu_to_affin, int, S_IRUGO|S_IWUSR);
