@@ -1,4 +1,4 @@
-/* Copyright (c) 2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2016, The Linux Foundation. All rights reserved.
 *
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License version 2 and
@@ -180,6 +180,8 @@ static long audio_compat_ioctl(struct file *file, unsigned int cmd,
 		struct msm_audio_ape_config *ape_config;
 		struct msm_audio_ape_config_32 ape_config_32;
 
+		memset(&ape_config_32, 0, sizeof(ape_config_32));
+
 		ape_config = (struct msm_audio_ape_config *)audio->codec_cfg;
 		ape_config_32.compatibleVersion = ape_config->compatibleVersion;
 		ape_config_32.compressionLevel =
@@ -268,6 +270,8 @@ static int audio_open(struct inode *inode, struct file *file)
 	audio->miscdevice = &audio_ape_misc;
 	audio->wakelock_voted = false;
 	audio->audio_ws_mgr = &audio_ape_ws_mgr;
+
+	init_waitqueue_head(&audio->event_wait);
 
 	audio->ac = q6asm_audio_client_alloc((app_cb) q6_audio_cb,
 					     (void *)audio);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  * Copyright (C) 1994 Martin Schaller
  *
  * 2001 - Documented with DocBook
@@ -197,7 +197,7 @@ static struct mdp_input_layer *__create_layer_list(
 	struct mdp_input_layer32 *layer_list32,
 	u32 layer_count)
 {
-	int i, ret;
+	int i, ret = 0;
 	u32 buffer_size;
 	struct mdp_input_layer *layer, *layer_list;
 	struct mdp_input_layer32 *layer32;
@@ -299,9 +299,10 @@ static int __compat_atomic_commit(struct fb_info *info, unsigned int cmd,
 	struct mdp_layer_commit  commit;
 	struct mdp_layer_commit32 commit32;
 	u32 layer_count;
-	struct mdp_input_layer *layer_list = NULL, *layer;
+	struct mdp_input_layer *layer_list = NULL;
 	struct mdp_input_layer32 *layer_list32 = NULL;
 	struct mdp_output_layer *output_layer = NULL;
+	struct mdp_frc_info *frc_info = NULL;
 
 	/* copy top level memory from 32 bit structure to kernel memory */
 	ret = copy_from_user(&commit32, (void __user *)argp,
@@ -361,6 +362,29 @@ static int __compat_atomic_commit(struct fb_info *info, unsigned int cmd,
 		}
 	}
 
+	if (commit32.commit_v1.frc_info) {
+		int buffer_size = sizeof(struct mdp_frc_info);
+
+		frc_info = kzalloc(buffer_size, GFP_KERNEL);
+		if (!frc_info) {
+			ret = -ENOMEM;
+			goto frc_err;
+		}
+
+		ret = copy_from_user(frc_info,
+				compat_ptr(commit32.commit_v1.frc_info),
+				buffer_size);
+		if (ret) {
+			pr_err("fail to copy frc info from user, ptr %p\n",
+				compat_ptr(commit32.commit_v1.frc_info));
+			kfree(frc_info);
+			ret = -EFAULT;
+			goto frc_err;
+		}
+
+		commit.commit_v1.frc_info = frc_info;
+	}
+
 	ret = mdss_fb_atomic_commit(info, &commit, file);
 	if (ret)
 		pr_err("atomic commit failed ret:%d\n", ret);
@@ -370,9 +394,12 @@ static int __compat_atomic_commit(struct fb_info *info, unsigned int cmd,
 			argp, layer_count);
 
 	for (i = 0; i < layer_count; i++) {
-		kfree(layer[i].scale);
-		mdss_mdp_free_layer_pp_info(&layer[i]);
+		kfree(layer_list[i].scale);
+		mdss_mdp_free_layer_pp_info(&layer_list[i]);
 	}
+
+	kfree(frc_info);
+frc_err:
 	kfree(layer_list);
 layer_list_err:
 	kfree(layer_list32);
@@ -447,8 +474,9 @@ static int __compat_async_position_update(struct fb_info *info,
 	layer_cnt = update_pos32.input_layer_cnt;
 	if ((!layer_cnt) || (layer_cnt > MAX_LAYER_COUNT)) {
 		pr_err("invalid async layers :%d to update\n", layer_cnt);
- 		return -EINVAL;
- 	}
+		return -EINVAL;
+	}
+
 	layer_list = __create_async_layer_list(&update_pos32,
 		layer_cnt);
 	if (IS_ERR_OR_NULL(layer_list))

@@ -677,18 +677,17 @@ static int functionfs_ready_callback(struct ffs_data *ffs)
 	struct android_dev *dev = ffs_function.android_dev;
 	struct functionfs_config *config = ffs_function.config;
 
-	if (dev)
-		mutex_lock(&dev->mutex);
+	if (!dev)
+		return -ENODEV;
 
+	mutex_lock(&dev->mutex);
 	config->data = ffs;
 	config->opened = true;
 
 	if (config->enabled && dev)
 		android_enable(dev);
 
-	if (dev)
-		mutex_unlock(&dev->mutex);
-
+	mutex_unlock(&dev->mutex);
 	return 0;
 }
 
@@ -908,7 +907,6 @@ static int rmnet_function_bind_config(struct android_usb_function *f,
 	static int rmnet_initialized, ports;
 
 	if (!rmnet_initialized) {
-		rmnet_initialized = 1;
 		strlcpy(buf, rmnet_transports, sizeof(buf));
 		b = strim(buf);
 
@@ -937,8 +935,11 @@ static int rmnet_function_bind_config(struct android_usb_function *f,
 		err = rmnet_gport_setup();
 		if (err) {
 			pr_err("rmnet: Cannot setup transports");
+			frmnet_deinit_port();
+			ports = 0;
 			goto out;
 		}
+		rmnet_initialized = 1;
 	}
 
 	for (i = 0; i < ports; i++) {
@@ -1867,6 +1868,19 @@ static int serial_function_bind_config(struct android_usb_function *f,
 			}
 		}
 	}
+	/*
+	 * Make sure we always have two serials ports initialized to allow
+	 * switching composition from 1 serial function to 2 serial functions.
+	 * Mark 2nd port to use tty if user didn't specify transport.
+	 */
+	if ((config->instances_on == 1) && !serial_initialized) {
+		err = gserial_init_port(ports, "tty", "serial_tty");
+		if (err) {
+			pr_err("serial: Cannot open port '%s'", "tty");
+			goto out;
+		}
+		config->instances_on++;
+	}
 
 	/* limit the serial ports init only for boot ports */
 	if (ports > config->instances_on)
@@ -1881,8 +1895,7 @@ static int serial_function_bind_config(struct android_usb_function *f,
 		goto out;
 	}
 
-	config->instances_on = ports;
-	for (i = 0; i < ports; i++) {
+	for (i = 0; i < config->instances_on; i++) {
 		config->f_serial_inst[i] = usb_get_function_instance("gser");
 		if (IS_ERR(config->f_serial_inst[i])) {
 			err = PTR_ERR(config->f_serial_inst[i]);
@@ -2538,12 +2551,7 @@ static unsigned int fsg_num_buffers = CONFIG_USB_GADGET_STORAGE_NUM_BUFFERS;
 #else
 #define fsg_num_buffers	CONFIG_USB_GADGET_STORAGE_NUM_BUFFERS
 #endif /* CONFIG_USB_GADGET_DEBUG_FILES */
-static struct fsg_module_parameters fsg_mod_data={
-      .ro[0]  = true,
-      .removable[0] = false,
-      .cdrom[0] = true,
-      .luns   = 1,
-};
+static struct fsg_module_parameters fsg_mod_data;
 FSG_MODULE_PARAMETERS(/* no prefix */, fsg_mod_data);
 
 static int mass_storage_function_init(struct android_usb_function *f,
@@ -3394,7 +3402,7 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 		}
 		INIT_LIST_HEAD(&conf->enabled_functions);
 	}
-    pr_err("android_usb: functions_store'%s'\n",buff);
+
 	strlcpy(buf, buff, sizeof(buf));
 	b = strim(buf);
 
@@ -3488,8 +3496,6 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 	mutex_lock(&dev->mutex);
 
 	sscanf(buff, "%d", &enabled);
-	pr_err("android_usb: enable_store(%d) dev->enabled=%s\n",
-				enabled, dev->enabled ? "enabled" : "disabled");
 	if (enabled && !dev->enabled) {
 		/*
 		 * Update values in composite driver's copy of
@@ -3522,7 +3528,7 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 		if (err < 0) {
 			pr_err("%s: android_enable failed\n", __func__);
 			dev->connected = 0;
-			dev->enabled = false;
+			dev->enabled = true;
 			mutex_unlock(&dev->mutex);
 			return size;
 		}
@@ -3866,10 +3872,8 @@ android_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *c)
 			do_work = true;
 	}
 	spin_unlock_irqrestore(&cdev->lock, flags);
-	if (do_work){
-		pr_err("%s():  \n", __func__);
+	if (do_work)
 		schedule_work(&dev->work);
-	}
 
 	return value;
 }

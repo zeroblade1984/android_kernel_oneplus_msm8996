@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -124,19 +124,21 @@ void mdss_check_dsi_ctrl_status(struct work_struct *work, uint32_t interval)
 	 * to acquire ov_lock in case of video mode. Removing this
 	 * lock to fix issues so that ESD thread would not block other
 	 * overlay operations. Need refine this lock for command mode
+	 *
+	 * If Burst mode is enabled then we dont have to acquire ov_lock as
+	 * command and data arbitration is possible in h/w
 	 */
 
-	mutex_lock(&ctrl_pdata->mutex);
-	if (mipi->mode == DSI_CMD_MODE)
+	if ((mipi->mode == DSI_CMD_MODE) && !ctrl_pdata->burst_mode_enabled)
 		mutex_lock(&mdp5_data->ov_lock);
 	mutex_lock(&ctl->offlock);
 
 	if (mdss_panel_is_power_off(pstatus_data->mfd->panel_power_state) ||
 			pstatus_data->mfd->shutdown_pending) {
 		mutex_unlock(&ctl->offlock);
-		if (mipi->mode == DSI_CMD_MODE)
+		if ((mipi->mode == DSI_CMD_MODE) &&
+		    !ctrl_pdata->burst_mode_enabled)
 			mutex_unlock(&mdp5_data->ov_lock);
-		mutex_unlock(&ctrl_pdata->mutex);
 		pr_err("%s: DSI turning off, avoiding panel status check\n",
 							__func__);
 		return;
@@ -152,7 +154,7 @@ void mdss_check_dsi_ctrl_status(struct work_struct *work, uint32_t interval)
 	 * display reset not to be proper. Hence, wait for DMA_P done
 	 * for command mode panels before triggering BTA.
 	 */
-	if (ctl->ops.wait_pingpong)
+	if (ctl->ops.wait_pingpong && !ctrl_pdata->burst_mode_enabled)
 		ctl->ops.wait_pingpong(ctl, NULL);
 
 	pr_debug("%s: DSI ctrl wait for ping pong done\n", __func__);
@@ -162,9 +164,8 @@ void mdss_check_dsi_ctrl_status(struct work_struct *work, uint32_t interval)
 	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
 
 	mutex_unlock(&ctl->offlock);
-	if (mipi->mode == DSI_CMD_MODE)
+	if ((mipi->mode == DSI_CMD_MODE) && !ctrl_pdata->burst_mode_enabled)
 		mutex_unlock(&mdp5_data->ov_lock);
-	mutex_unlock(&ctrl_pdata->mutex);
 
 	if ((pstatus_data->mfd->panel_power_state == MDSS_PANEL_POWER_ON)) {
 		if (ret > 0)

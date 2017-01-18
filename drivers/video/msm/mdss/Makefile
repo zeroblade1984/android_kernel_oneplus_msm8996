@@ -11,7 +11,6 @@ mdss-mdp-objs += mdss_mdp_pp.o mdss_mdp_pp_debug.o mdss_mdp_pp_cache_config.o
 mdss-mdp-objs += mdss_mdp_intf_video.o
 mdss-mdp-objs += mdss_mdp_intf_cmd.o
 mdss-mdp-objs += mdss_mdp_intf_writeback.o
-mdss-mdp-objs += mdss_mdp_rotator.o
 mdss-mdp-objs += mdss_rotator.o
 mdss-mdp-objs += mdss_mdp_overlay.o
 mdss-mdp-objs += mdss_mdp_layer.o
@@ -22,16 +21,13 @@ mdss-mdp-objs += mdss_mdp_wfd.o
 obj-$(CONFIG_FB_MSM_MDSS) += mdss-mdp.o
 obj-$(CONFIG_FB_MSM_MDSS) += mdss_mdp_debug.o
 
-ifeq ($(CONFIG_ARCH_MSM8996),y)
 mdss-mdp-objs += mdss_mdp_pp_v1_7.o
-endif
-
-ifeq ($(CONFIG_ARCH_MSM8937),y)
-mdss-mdp-objs += mdss_mdp_pp_v1_7.o
-endif
+mdss-mdp-objs += mdss_mdp_pp_v3.o
+mdss-mdp-objs += mdss_mdp_pp_common.o
 
 ifeq ($(CONFIG_FB_MSM_MDSS),y)
 obj-$(CONFIG_DEBUG_FS) += mdss_debug.o mdss_debug_xlog.o
+obj-$(CONFIG_DEBUG_FS) += mdss_debug_frc.o
 endif
 
 ifneq ($(CONFIG_ARCH_MSMFERRUM),y)
@@ -68,4 +64,5 @@ obj-$(CONFIG_FB_MSM_QPIC_ILI_QVGA_PANEL) += qpic_panel_ili_qvga.o
 
 obj-$(CONFIG_FB_MSM_MDSS) += mdss_fb.o mdss_util.o
 obj-$(CONFIG_COMPAT) += mdss_compat_utils.o
-obj-$(CONFIG_FB_MSM_MDSS_KCAL_CTRL) += mdss_mdp_kcal_ctrl.o
+
+obj-$(CONFIG_FB_MSM_MDSS) += mdss_livedisplay.o

@@ -1188,11 +1188,13 @@ fixup_hmp_sched_stats_rt(struct rq *rq, struct task_struct *p,
 #else
 static void
 fixup_hmp_sched_stats_rt(struct rq *rq, struct task_struct *p,
-			 u32 new_task_load)
+			 u32 new_task_load, u32 new_pred_demand)
 {
 	s64 task_load_delta = (s64)new_task_load - task_load(p);
+	s64 pred_demand_delta = PRED_DEMAND_DELTA;
 
-	fixup_cumulative_runnable_avg(&rq->hmp_stats, p, task_load_delta);
+	fixup_cumulative_runnable_avg(&rq->hmp_stats, p, task_load_delta,
+				      pred_demand_delta);
 }
 #endif
 
@@ -1547,10 +1549,10 @@ static struct task_struct *_pick_next_task_rt(struct rq *rq)
 	 * put_prev_task. A stale value can cause us to over-charge execution
 	 * time to real-time task, that could trigger throttling unnecessarily
 	 */
-	if (rq->skip_clock_update > 0) {
+	if (rq->skip_clock_update > 0)
 		rq->skip_clock_update = 0;
-		update_rq_clock(rq);
-	}
+
+	update_rq_clock(rq);
 	p = rt_task_of(rt_se);
 	p->se.exec_start = rq_clock_task(rq);
 
@@ -1655,7 +1657,8 @@ static int find_lowest_rq_hmp(struct task_struct *task)
 	int prev_cpu = task_cpu(task);
 	u64 cpu_load, min_load = ULLONG_MAX;
 	int i;
-	int restrict_cluster = sysctl_sched_restrict_cluster_spill;
+	int restrict_cluster = sched_boost() ? 0 :
+				sysctl_sched_restrict_cluster_spill;
 
 	/* Make sure the mask is initialized first */
 	if (unlikely(!lowest_mask))

@@ -24,7 +24,7 @@ enum mmc_packed_type {
 
 struct mmc_packed {
 	struct list_head	list;
-	u32			cmd_hdr[1024];
+	__le32			cmd_hdr[1024];
 	unsigned int		blocks;
 	u8			nr_entries;
 	u8			retries;
@@ -71,6 +71,7 @@ struct mmc_queue {
 	struct work_struct	cmdq_err_work;
 
 	struct completion	cmdq_pending_req_done;
+	struct completion	cmdq_shutdown_complete;
 	struct request		*cmdq_req_peeked;
 	int (*err_check_fn) (struct mmc_card *, struct mmc_async_req *);
 	void (*packed_test_fn) (struct request_queue *, struct mmc_queue_req *);

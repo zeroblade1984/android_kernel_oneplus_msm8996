@@ -36,7 +36,15 @@
 static struct v4l2_device *msm_v4l2_dev;
 static struct list_head    ordered_sd_list;
 
+static struct pm_qos_request msm_v4l2_pm_qos_request;
+
 static struct msm_queue_head *msm_session_q;
+
+/* This variable represent daemon status
+ * true = daemon present (default state)
+ * false = daemon is NOT present
+ */
+bool is_daemon_status = true;
 
 /* config node envent queue */
 static struct v4l2_fh  *msm_eventq;
@@ -210,6 +218,24 @@ static inline int __msm_queue_find_command_ack_q(void *d1, void *d2)
 	return (ack->stream_id == *(unsigned int *)d2) ? 1 : 0;
 }
 
+static void msm_pm_qos_add_request(void)
+{
+	pr_info("%s: add request", __func__);
+	pm_qos_add_request(&msm_v4l2_pm_qos_request, PM_QOS_CPU_DMA_LATENCY,
+	PM_QOS_DEFAULT_VALUE);
+}
+
+static void msm_pm_qos_remove_request(void)
+{
+	pr_info("%s: remove request", __func__);
+	pm_qos_remove_request(&msm_v4l2_pm_qos_request);
+}
+
+void msm_pm_qos_update_request(int val)
+{
+	pr_info("%s: update request %d", __func__, val);
+	pm_qos_update_request(&msm_v4l2_pm_qos_request, val);
+}
 
 struct msm_session *msm_session_find(unsigned int session_id)
 {
@@ -506,12 +532,16 @@ static inline int __msm_sd_close_subdevs(struct msm_sd_subdev *msm_sd,
 	return 0;
 }
 
-static inline int __msm_sd_notify_freeze_subdevs(struct msm_sd_subdev *msm_sd)
+static inline int __msm_sd_notify_freeze_subdevs(struct msm_sd_subdev *msm_sd,
+	int enable)
 {
 	struct v4l2_subdev *sd;
 	sd = &msm_sd->sd;
 
-	v4l2_subdev_call(sd, core, ioctl, MSM_SD_NOTIFY_FREEZE, NULL);
+	if (enable)
+		v4l2_subdev_call(sd, core, ioctl, MSM_SD_NOTIFY_FREEZE, NULL);
+	else
+		v4l2_subdev_call(sd, core, ioctl, MSM_SD_UNNOTIFY_FREEZE, NULL);
 
 	return 0;
 }
@@ -629,6 +659,12 @@ static long msm_private_ioctl(struct file *file, void *fh,
 	unsigned long spin_flags = 0;
 	struct msm_sd_subdev *msm_sd;
 
+	if (cmd == MSM_CAM_V4L2_IOCTL_DAEMON_DISABLED) {
+		is_daemon_status = false;
+		return 0;
+	}
+
+	memset(&event, 0, sizeof(struct v4l2_event));
 	session_id = event_data->session_id;
 	stream_id = event_data->stream_id;
 
@@ -688,10 +724,18 @@ static long msm_private_ioctl(struct file *file, void *fh,
 		break;
 
 	case MSM_CAM_V4L2_IOCTL_NOTIFY_DEBUG: {
-		pr_err("Notifying subdevs about potential sof freeze\n");
+		if (event_data->status) {
+			pr_err("%s:Notifying subdevs about potential sof freeze\n",
+				__func__);
+		} else {
+			pr_err("%s:Notifying subdevs about sof recover\n",
+				__func__);
+		}
+
 		if (!list_empty(&msm_v4l2_dev->subdevs)) {
 			list_for_each_entry(msm_sd, &ordered_sd_list, list)
-				__msm_sd_notify_freeze_subdevs(msm_sd);
+				__msm_sd_notify_freeze_subdevs(msm_sd,
+					event_data->status);
 		}
 	}
 		break;
@@ -881,6 +925,9 @@ static int msm_close(struct file *filep)
 		list_for_each_entry(msm_sd, &ordered_sd_list, list)
 			__msm_sd_close_subdevs(msm_sd, &sd_close);
 
+	/* remove msm_v4l2_pm_qos_request */
+	msm_pm_qos_remove_request();
+
 	/* send v4l2_event to HAL next*/
 	msm_queue_traverse_action(msm_session_q, struct msm_session, list,
 		__msm_close_destry_session_notify_apps, NULL);
@@ -936,6 +983,9 @@ static int msm_open(struct file *filep)
 	spin_lock_irqsave(&msm_eventq_lock, flags);
 	msm_eventq = filep->private_data;
 	spin_unlock_irqrestore(&msm_eventq_lock, flags);
+
+	/* register msm_v4l2_pm_qos_request */
+	msm_pm_qos_add_request();
 
 	return rc;
 }
@@ -1017,6 +1067,28 @@ struct msm_stream *msm_get_stream_from_vb2q(struct vb2_queue *q)
 	return NULL;
 }
 EXPORT_SYMBOL(msm_get_stream_from_vb2q);
+
+#ifdef CONFIG_COMPAT
+long msm_copy_camera_private_ioctl_args(unsigned long arg,
+	struct msm_camera_private_ioctl_arg *k_ioctl,
+	void __user **tmp_compat_ioctl_ptr)
+{
+	struct msm_camera_private_ioctl_arg *up_ioctl_ptr =
+		(struct msm_camera_private_ioctl_arg *)arg;
+
+	if (WARN_ON(!arg || !k_ioctl || !tmp_compat_ioctl_ptr))
+		return -EIO;
+
+	k_ioctl->id = up_ioctl_ptr->id;
+	k_ioctl->size = up_ioctl_ptr->size;
+	k_ioctl->result = up_ioctl_ptr->result;
+	k_ioctl->reserved = up_ioctl_ptr->reserved;
+	*tmp_compat_ioctl_ptr = compat_ptr(up_ioctl_ptr->ioctl_ptr);
+
+	return 0;
+}
+EXPORT_SYMBOL(msm_copy_camera_private_ioctl_args);
+#endif
 
 static void msm_sd_notify(struct v4l2_subdev *sd,
 	unsigned int notification, void *arg)

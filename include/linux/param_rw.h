@@ -39,8 +39,6 @@ typedef struct
 {
     param_product_desc_head_t sid_head;
     uint gamma_select;
-    uint lcm_acl;
-    uint lcm_srgb_mode;
 }param_lcd_t;
 
 typedef struct
@@ -196,7 +194,5 @@ int get_param_gamma_select(uint * gamma_select);
 int get_param_pcba_number(char * pcbe_number);
 /* Only for wlan evm chip */
 int get_param_nvm_boarddata(uint * nvm_boarddata_select);
-int set_param_lcm_srgb_mode(uint * lcm_srgb_mdoe);
-int get_param_lcm_srgb_mode(uint *lcm_srgb_mdoe);
 
 #endif

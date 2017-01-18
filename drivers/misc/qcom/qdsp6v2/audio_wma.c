@@ -2,7 +2,7 @@
  *
  * Copyright (C) 2008 Google, Inc.
  * Copyright (C) 2008 HTC Corporation
- * Copyright (c) 2009-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2009-2016, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -166,6 +166,8 @@ static long audio_compat_ioctl(struct file *file, unsigned int cmd,
 		struct msm_audio_wma_config_v2 *wma_config;
 		struct msm_audio_wma_config_v2_32 wma_config_32;
 
+		memset(&wma_config_32, 0, sizeof(wma_config_32));
+
 		wma_config = (struct msm_audio_wma_config_v2 *)audio->codec_cfg;
 		wma_config_32.format_tag = wma_config->format_tag;
 		wma_config_32.numchannels = wma_config->numchannels;
@@ -250,6 +252,8 @@ static int audio_open(struct inode *inode, struct file *file)
 	audio->miscdevice = &audio_wma_misc;
 	audio->wakelock_voted = false;
 	audio->audio_ws_mgr = &audio_wma_ws_mgr;
+
+	init_waitqueue_head(&audio->event_wait);
 
 	audio->ac = q6asm_audio_client_alloc((app_cb) q6_audio_cb,
 					     (void *)audio);
