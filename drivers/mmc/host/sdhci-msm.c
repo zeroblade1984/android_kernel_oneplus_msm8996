@@ -196,6 +196,9 @@
 #define MAX_DRV_TYPES_SUPPORTED_HS200	4
 #define MSM_AUTOSUSPEND_DELAY_MS 100
 
+/* Timeout value to avoid infinite waiting for pwr_irq */
+#define MSM_PWR_IRQ_TIMEOUT_MS 5000
+
 static const u32 tuning_block_64[] = {
 	0x00FF0FFF, 0xCCC3CCFF, 0xFFCC3CC3, 0xEFFEFFFE,
 	0xDDFFDFFF, 0xFBFFFBFF, 0xFF7FFFBF, 0xEFBDF777,
@@ -966,6 +969,13 @@ int sdhci_msm_execute_tuning(struct sdhci_host *host, u32 opcode)
 		(ios.timing == MMC_TIMING_UHS_SDR104)))
 		return 0;
 
+	/*
+	 * Don't allow re-tuning for CRC errors observed for any commands
+	 * that are sent during tuning sequence itself.
+	 */
+	if (msm_host->tuning_in_progress)
+		return 0;
+	msm_host->tuning_in_progress = true;
 	pr_debug("%s: Enter %s\n", mmc_hostname(mmc), __func__);
 
 	/* CDC/SDC4 DLL HW calibration is only required for HS400 mode*/
@@ -1142,6 +1152,7 @@ out:
 	if (!rc)
 		msm_host->tuning_done = true;
 	spin_unlock_irqrestore(&host->lock, flags);
+	msm_host->tuning_in_progress = false;
 	pr_debug("%s: Exit %s, err(%d)\n", mmc_hostname(mmc), __func__, rc);
 	return rc;
 }
@@ -2570,8 +2581,10 @@ static void sdhci_msm_check_power_status(struct sdhci_host *host, u32 req_type)
 	 */
 	if (done)
 		init_completion(&msm_host->pwr_irq_completion);
-	else
-		wait_for_completion(&msm_host->pwr_irq_completion);
+	else if (!wait_for_completion_timeout(&msm_host->pwr_irq_completion,
+				msecs_to_jiffies(MSM_PWR_IRQ_TIMEOUT_MS)))
+		__WARN_printf("%s: request(%d) timed out waiting for pwr_irq\n",
+					mmc_hostname(host->mmc), req_type);
 
 	pr_debug("%s: %s: request %d done\n", mmc_hostname(host->mmc),
 			__func__, req_type);
@@ -3926,7 +3939,7 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 	/* Extract platform data */
 	if (pdev->dev.of_node) {
 		ret = of_alias_get_id(pdev->dev.of_node, "sdhc");
-		if (ret < 0) {
+		if (ret <= 0) {
 			dev_err(&pdev->dev, "Failed to get slot index %d\n",
 				ret);
 			goto pltfm_free;
@@ -3945,10 +3958,8 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 			goto pltfm_free;
 		}
 
-		if (ret <= 2) {
+		if (ret <= 2)
 			sdhci_slot[ret-1] = msm_host;
-			host->slot_no = ret;
-		}
 
 		msm_host->pdata = sdhci_msm_populate_pdata(&pdev->dev,
 							   msm_host);
@@ -4149,6 +4160,8 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 	host->quirks2 |= SDHCI_QUIRK2_IGNORE_DATATOUT_FOR_R1BCMD;
 	host->quirks2 |= SDHCI_QUIRK2_BROKEN_PRESET_VALUE;
 	host->quirks2 |= SDHCI_QUIRK2_USE_RESERVED_MAX_TIMEOUT;
+	host->quirks2 |= SDHCI_QUIRK2_NON_STANDARD_TUNING;
+	host->quirks2 |= SDHCI_QUIRK2_USE_PIO_FOR_EMMC_TUNING;
 
 	if (host->quirks2 & SDHCI_QUIRK2_ALWAYS_USE_BASE_CLOCK)
 		host->quirks2 |= SDHCI_QUIRK2_DIVIDE_TOUT_BY_4;
@@ -4203,7 +4216,6 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 	msm_host->mmc->caps |= MMC_CAP_WAIT_WHILE_BUSY;
 	msm_host->mmc->caps2 |= msm_host->pdata->caps2;
 	msm_host->mmc->caps2 |= MMC_CAP2_BOOTPART_NOACC;
-	msm_host->mmc->caps2 |= MMC_CAP2_FULL_PWR_CYCLE;
 	msm_host->mmc->caps2 |= MMC_CAP2_HS400_POST_TUNING;
 	msm_host->mmc->caps2 |= MMC_CAP2_CLK_SCALE;
 	msm_host->mmc->caps2 |= MMC_CAP2_SANITIZE;

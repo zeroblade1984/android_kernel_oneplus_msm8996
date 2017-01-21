@@ -10,6 +10,7 @@
 // acl mode
 #define MDSS_OEM_ACL_MODE
 
+
 //srgb mode
 #define MDSS_OEM_SRGB_MODE
 
@@ -22,7 +23,15 @@
 // fastly resume, lcm use less time on resuming
 #define MDSS_OEM_FASTLY_RESUME
 
-// use sys file-system to debug the init-commands
+// use sys file-system to debug the init-commands 
 #define MDSS_OEM_SYS_COMMAND
+
+//Adobe RGB mode
+#define MDSS_OEM_ADOBE_RGB_MODE
+
+//DCI-P3 mode
+#define MDSS_OEM_DCI_P3_MODE
+
+
 
 #endif

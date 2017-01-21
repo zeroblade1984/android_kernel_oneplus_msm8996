@@ -202,8 +202,7 @@ static inline s64 timekeeping_get_ns(struct tk_read_base *tkr)
 	/* calculate the delta since the last update_wall_time: */
 	delta = clocksource_delta(cycle_now, tkr->cycle_last, tkr->mask);
 
-	nsec = delta * tkr->mult + tkr->xtime_nsec;
-	nsec >>= tkr->shift;
+	nsec = (delta * tkr->mult + tkr->xtime_nsec) >> tkr->shift;
 
 	/* If arch requires, add in get_arch_timeoffset() */
 	return nsec + arch_gettimeoffset();
@@ -529,19 +528,14 @@ void getnstimeofday64(struct timespec64 *ts)
 }
 EXPORT_SYMBOL(getnstimeofday64);
 
-void getnstimeofday_no_nsecs(struct timespec *ts)
-{
-	struct timekeeper *tk = &tk_core.timekeeper;
-	ts->tv_sec = tk->xtime_sec;
-}
-
-EXPORT_SYMBOL(getnstimeofday_no_nsecs);
-ktime_t __ktime_get(void)
+ktime_t ktime_get(void)
 {
 	struct timekeeper *tk = &tk_core.timekeeper;
 	unsigned int seq;
 	ktime_t base;
 	s64 nsecs;
+
+	WARN_ON(timekeeping_suspended);
 
 	do {
 		seq = read_seqcount_begin(&tk_core.seq);
@@ -551,13 +545,6 @@ ktime_t __ktime_get(void)
 	} while (read_seqcount_retry(&tk_core.seq, seq));
 
 	return ktime_add_ns(base, nsecs);
-}
-EXPORT_SYMBOL_GPL(__ktime_get);
-ktime_t ktime_get(void)
-{
-  WARN_ON(timekeeping_suspended);
-
-  return __ktime_get();
 }
 EXPORT_SYMBOL_GPL(ktime_get);
 
@@ -1381,7 +1368,7 @@ static __always_inline void timekeeping_freqadjust(struct timekeeper *tk,
 	negative = (tick_error < 0);
 
 	/* Sort out the magnitude of the correction */
-	tick_error = abs(tick_error);
+	tick_error = abs64(tick_error);
 	for (adj = 0; tick_error > interval; adj++)
 		tick_error >>= 1;
 

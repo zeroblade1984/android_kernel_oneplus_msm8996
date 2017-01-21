@@ -132,6 +132,7 @@ static void __maybe_unused gic_write_pmr(u64 val)
 {
 	asm volatile("msr_s " __stringify(ICC_PMR_EL1) ", %0" : : "r" (val));
 	/* As per the architecture specification */
+	isb();
 	mb();
 }
 
@@ -151,6 +152,7 @@ static void __maybe_unused gic_write_sgi1r(u64 val)
 {
 	asm volatile("msr_s " __stringify(ICC_SGI1R_EL1) ", %0" : : "r" (val));
 	/* As per the architecture specification */
+	isb();
 	mb();
 }
 
@@ -276,7 +278,9 @@ static int gic_set_type(struct irq_data *d, unsigned int type)
 	if (irq < 16)
 		return -EINVAL;
 
-	if (type != IRQ_TYPE_LEVEL_HIGH && type != IRQ_TYPE_EDGE_RISING)
+	/* SPIs have restrictions on the supported types */
+	if (irq >= 32 && type != IRQ_TYPE_LEVEL_HIGH &&
+			 type != IRQ_TYPE_EDGE_RISING)
 		return -EINVAL;
 
 	if (gic_irq_in_rdist(d)) {
@@ -290,9 +294,7 @@ static int gic_set_type(struct irq_data *d, unsigned int type)
 	if (gic_arch_extn.irq_set_type)
 		gic_arch_extn.irq_set_type(d, type);
 
-	gic_configure_irq(irq, type, base, rwp_wait);
-
-	return 0;
+	return gic_configure_irq(irq, type, base, rwp_wait);
 }
 
 static int gic_retrigger(struct irq_data *d)

@@ -211,7 +211,7 @@ static int proc_pid_cmdline(struct seq_file *m, struct pid_namespace *ns,
 static int proc_pid_auxv(struct seq_file *m, struct pid_namespace *ns,
 			 struct pid *pid, struct task_struct *task)
 {
-	struct mm_struct *mm = mm_access(task, PTRACE_MODE_READ);
+	struct mm_struct *mm = mm_access(task, PTRACE_MODE_READ_FSCREDS);
 	if (mm && !IS_ERR(mm)) {
 		unsigned int nwords = 0;
 		do {
@@ -239,7 +239,7 @@ static int proc_pid_wchan(struct seq_file *m, struct pid_namespace *ns,
 	wchan = get_wchan(task);
 
 	if (lookup_symbol_name(wchan, symname) < 0)
-		if (!ptrace_may_access(task, PTRACE_MODE_READ))
+		if (!ptrace_may_access(task, PTRACE_MODE_READ_FSCREDS))
 			return 0;
 		else
 			return seq_printf(m, "%lu", wchan);
@@ -253,7 +253,7 @@ static int lock_trace(struct task_struct *task)
 	int err = mutex_lock_killable(&task->signal->cred_guard_mutex);
 	if (err)
 		return err;
-	if (!ptrace_may_access(task, PTRACE_MODE_ATTACH)) {
+	if (!ptrace_may_access(task, PTRACE_MODE_ATTACH_FSCREDS)) {
 		mutex_unlock(&task->signal->cred_guard_mutex);
 		return -EPERM;
 	}
@@ -496,7 +496,7 @@ static int proc_fd_access_allowed(struct inode *inode)
 	 */
 	task = get_proc_task(inode);
 	if (task) {
-		allowed = ptrace_may_access(task, PTRACE_MODE_READ);
+		allowed = ptrace_may_access(task, PTRACE_MODE_READ_FSCREDS);
 		put_task_struct(task);
 	}
 	return allowed;
@@ -531,7 +531,7 @@ static bool has_pid_permissions(struct pid_namespace *pid,
 		return true;
 	if (in_group_p(pid->pid_gid))
 		return true;
-	return ptrace_may_access(task, PTRACE_MODE_READ);
+	return ptrace_may_access(task, PTRACE_MODE_READ_FSCREDS);
 }
 
 
@@ -608,7 +608,7 @@ struct mm_struct *proc_mem_open(struct inode *inode, unsigned int mode)
 	struct mm_struct *mm = ERR_PTR(-ESRCH);
 
 	if (task) {
-		mm = mm_access(task, mode);
+		mm = mm_access(task, mode | PTRACE_MODE_FSCREDS);
 		put_task_struct(task);
 
 		if (!IS_ERR_OR_NULL(mm)) {
@@ -1874,7 +1874,7 @@ static int map_files_d_revalidate(struct dentry *dentry, unsigned int flags)
 	if (!task)
 		goto out_notask;
 
-	mm = mm_access(task, PTRACE_MODE_READ);
+	mm = mm_access(task, PTRACE_MODE_READ_FSCREDS);
 	if (IS_ERR_OR_NULL(mm))
 		goto out;
 
@@ -2006,7 +2006,7 @@ static struct dentry *proc_map_files_lookup(struct inode *dir,
 		goto out;
 
 	result = -EACCES;
-	if (!ptrace_may_access(task, PTRACE_MODE_READ))
+	if (!ptrace_may_access(task, PTRACE_MODE_READ_FSCREDS))
 		goto out_put_task;
 
 	result = -ENOENT;
@@ -2063,7 +2063,7 @@ proc_map_files_readdir(struct file *file, struct dir_context *ctx)
 		goto out;
 
 	ret = -EACCES;
-	if (!ptrace_may_access(task, PTRACE_MODE_READ))
+	if (!ptrace_may_access(task, PTRACE_MODE_READ_FSCREDS))
 		goto out_put_task;
 
 	ret = 0;
@@ -2542,7 +2542,7 @@ static int do_io_accounting(struct task_struct *task, struct seq_file *m, int wh
 	if (result)
 		return result;
 
-	if (!ptrace_may_access(task, PTRACE_MODE_READ)) {
+	if (!ptrace_may_access(task, PTRACE_MODE_READ_FSCREDS)) {
 		result = -EACCES;
 		goto out_unlock;
 	}
@@ -2731,9 +2731,9 @@ static int proc_pid_personality(struct seq_file *m, struct pid_namespace *ns,
 	}
 	return err;
 }
-
 static const struct file_operations proc_wakeup_operations;
 
+static const struct file_operations proc_sleeptime_operations;
 /*
  * Thread groups
  */
@@ -2762,7 +2762,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_SCHED_HMP
 	REG("sched_init_task_load",      S_IRUGO|S_IWUSR, proc_pid_sched_init_task_load_operations),
 #ifndef CONFIG_SCHED_QHMP
-	REG("sched_group_id",      S_IRUGO|S_IWUSR, proc_pid_sched_group_id_operations),
+	REG("sched_group_id",      S_IRUGO|S_IWUGO, proc_pid_sched_group_id_operations),
 #endif
 #endif
 #ifdef CONFIG_SCHED_DEBUG
@@ -2846,7 +2846,9 @@ static const struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_CHECKPOINT_RESTORE
 	REG("timers",	  S_IRUGO, proc_timers_operations),
 #endif
-    REG("wakeup",  S_IRUGO, proc_wakeup_operations),
+	REG("sleeptime",  S_IRUGO, proc_sleeptime_operations),
+	REG("wakeup",  S_IRUGO, proc_wakeup_operations),
+
 };
 
 static int proc_tgid_base_readdir(struct file *file, struct dir_context *ctx)
@@ -3010,7 +3012,6 @@ struct dentry *proc_pid_lookup(struct inode *dir, struct dentry * dentry, unsign
 out:
 	return ERR_PTR(result);
 }
-
 /*
  * Find the first task with tgid >= tgid
  *
@@ -3417,6 +3418,53 @@ static const struct file_operations proc_task_operations = {
 	.iterate	= proc_task_readdir,
 	.llseek		= default_llseek,
 };
+
+static ssize_t proc_sleeptime_read(struct file * file, char __user * buf,
+                  size_t count, loff_t *ppos)
+{
+    unsigned long flags;
+    struct inode * inode = file->f_path.dentry->d_inode;
+    struct task_struct *task = get_proc_task(inode);
+    struct timespec rmtp;
+    struct timespec ts;
+    int ret = 0;
+    ssize_t length;
+    char tmpbuf[128];
+
+    if (!task)
+        return -ESRCH;
+
+    getnstimeofday(&ts);
+    raw_spin_lock_irqsave(&task->pi_lock, flags);
+    rmtp = task->group_leader->ttu;
+    ret = timespec_compare(&ts, &rmtp);
+    raw_spin_unlock_irqrestore(&task->pi_lock, flags);
+    /**currrent time compare with the task sleeptime
+       if the current time >= sleeptime
+          we consider the task is wake, so clear the sleeptime
+       otherwise sleeptime sub current time to update the
+       remaining time to wake
+    **/
+    if (ret >= 0) {
+        rmtp.tv_sec = 0;
+        rmtp.tv_nsec = 0;
+        ts.tv_sec = 0;
+        ts.tv_nsec = 0;
+    } else {
+        //follow caculate, the rmpt value can't be change
+        ts = timespec_sub(rmtp, ts);
+    }
+
+    length = scnprintf(tmpbuf, 128, "%ld %ld\n",
+                ts.tv_sec, ts.tv_nsec);
+    put_task_struct(task);
+    return simple_read_from_buffer(buf, count, ppos, tmpbuf, length);
+}
+
+static const struct file_operations proc_sleeptime_operations = {
+    .read       = proc_sleeptime_read,
+    .llseek     = generic_file_llseek,
+};
 static ssize_t proc_wakeup_read(struct file * file, char __user * buf,
                   size_t count, loff_t *ppos)
 {
@@ -3447,3 +3495,4 @@ static const struct file_operations proc_wakeup_operations = {
     .read       = proc_wakeup_read,
     .llseek     = generic_file_llseek,
 };
+//endif

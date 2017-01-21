@@ -264,34 +264,6 @@ static const char * const qpnp_poff_reason[] = {
 	[13] = "Triggered from UVLO (Under Voltage Lock Out)",
 	[14] = "Triggered from OTST3 (Overtemp)",
 	[15] = "Triggered from STAGE3 (Stage 3 reset)",
-
-	/* QPNP_PON_GEN2 FAULT reasons */
-	[16] = "Triggered from GP_FAULT0",
-	[17] = "Triggered from GP_FAULT1",
-	[18] = "Triggered from GP_FAULT2",
-	[19] = "Triggered from GP_FAULT3",
-	[20] = "Triggered from MBG_FAULT",
-	[21] = "Triggered from OVLO (Over Voltage Lock Out)",
-	[22] = "Triggered from UVLO (Under Voltage Lock Out)",
-	[23] = "Triggered from AVDD_RB",
-	[24] = "N/A",
-	[25] = "N/A",
-	[26] = "N/A",
-	[27] = "Triggered from FAULT_FAULT_N",
-	[28] = "Triggered from FAULT_PBS_WATCHDOG_TO",
-	[29] = "Triggered from FAULT_PBS_NACK",
-	[30] = "Triggered from FAULT_RESTART_PON",
-	[31] = "Triggered from OTST3 (Overtemp)",
-
-	/* QPNP_PON_GEN2 S3_RESET reasons */
-	[32] = "N/A",
-	[33] = "N/A",
-	[34] = "N/A",
-	[35] = "N/A",
-	[36] = "Triggered from S3_RESET_FAULT_N",
-	[37] = "Triggered from S3_RESET_PBS_WATCHDOG_TO",
-	[38] = "Triggered from S3_RESET_PBS_NACK",
-	[39] = "Triggered from S3_RESET_KPDPWR_ANDOR_RESIN (power key and/or reset line)",
 };
 
 /*
@@ -785,12 +757,11 @@ qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 		{
 			printk("Power-Key UP\n");
 			cancel_delayed_work(&pon->press_work);
-		}
-		else
-		{
+		}else{		   	
 			printk("Power-Key DOWN\n");
-			schedule_delayed_work(&pon->press_work,msecs_to_jiffies(3000));
+			schedule_delayed_work(&pon->press_work,msecs_to_jiffies(3000));  
 		}
+
 		break;
 	case PON_RESIN:
 		pon_rt_bit = QPNP_PON_RESIN_N_SET;
@@ -978,7 +949,6 @@ static void bark_work_func(struct work_struct *work)
 err_return:
 	return;
 }
-
 static void press_work_func(struct work_struct *work)
 {
 	int rc;
@@ -986,7 +956,7 @@ static void press_work_func(struct work_struct *work)
 	struct qpnp_pon *pon =
 		container_of(work, struct qpnp_pon, press_work.work);
 	u8 pon_rt_sts = 0;
-
+	
 	cfg = qpnp_get_cfg(pon, PON_KPDPWR);
 	if (!cfg) {
 		dev_err(&pon->spmi->dev, "Invalid config pointer\n");
@@ -1006,7 +976,6 @@ static void press_work_func(struct work_struct *work)
 err_return:
 	return;
 }
-
 static irqreturn_t qpnp_resin_bark_irq(int irq, void *_pon)
 {
 	int rc;
@@ -1039,7 +1008,6 @@ err_exit:
 	return IRQ_HANDLED;
 }
 
-/*20151106,wujialong add for power dump capture*/
 static int qpnp_config_reset(struct qpnp_pon *pon, struct qpnp_pon_config *cfg);
 
 static unsigned int pwr_dump_enabled = 0;
@@ -1075,7 +1043,6 @@ static int param_set_pwr_dump_enabled(const char *val, struct kernel_param *kp)
 }
 
 module_param_call(pwr_dump_enabled, param_set_pwr_dump_enabled, param_get_uint, &pwr_dump_enabled, 0644);
-/*20151106,wujialong add for power dump capture*/
 
 static int
 qpnp_config_pull(struct qpnp_pon *pon, struct qpnp_pon_config *cfg)
@@ -2019,9 +1986,8 @@ static ssize_t pwron_reason_show(struct kobject *kobj, struct kobj_attribute *at
                         char *buf)
 {
     int i;
-    int j;
     int index;
-    u8 pon_sts;
+    u8 pon_sts = 0;
     int rc;
     char *pbuf = buf;
     int ret = 0;
@@ -2050,6 +2016,7 @@ static ssize_t pwron_reason_show(struct kobject *kobj, struct kobj_attribute *at
 		    pbuf += strlen(pbuf);
 		    continue;
 	    }
+
         index = ffs(pon_sts)-1;
         if (index >= ARRAY_SIZE(qpnp_pon_reason) || index < 0){
             sprintf(pbuf, "PMIC@SID%d Power-on reason: Unknown and '%s' boot\n",
@@ -2063,20 +2030,14 @@ static ssize_t pwron_reason_show(struct kobject *kobj, struct kobj_attribute *at
 	        ret += strlen(pbuf);
 	        pbuf += strlen(pbuf);
 	    }
-
-        for(j=0; j<ARRAY_SIZE(qpnp_pon_reason); j++){
-            index = ((pon_sts>>j)&0x1)?j:-1;
-
-            if(index>=0){
-                 sprintf(pbuf, "[%d] ", index);
-                 ret += strlen(pbuf);
-                 pbuf += strlen(pbuf);
-            }
+		for_each_set_bit(index, (unsigned long *)&pon_sts, ARRAY_SIZE(qpnp_pon_reason)){
+			sprintf(pbuf, "[%d] ", index);
+			ret += strlen(pbuf);
+			pbuf += strlen(pbuf);
         }
-
-	    sprintf(pbuf, "\n");
-	    ret += strlen(pbuf);
-	    pbuf += strlen(pbuf);
+		sprintf(pbuf, "Power-on status:[0x%x]\n", pon_sts);
+		ret += strlen(pbuf);
+		pbuf += strlen(pbuf);
     }
 
     if(ret){
@@ -2094,7 +2055,7 @@ static ssize_t pwroff_reason_show(struct kobject *kobj, struct kobj_attribute *a
     int index;
     int rc;
     u8 temp_buf[2];
-    u8 poff_sts;
+    u16 poff_sts = 0;
     char *pbuf = buf;
     int ret = 0;
 
@@ -2126,9 +2087,8 @@ static ssize_t pwroff_reason_show(struct kobject *kobj, struct kobj_attribute *a
 
         poff_sts = temp_buf[0] | (temp_buf[1] << 8);
 	    index = ffs(poff_sts) - 1;
-
         if (index >= ARRAY_SIZE(qpnp_poff_reason) || index < 0) {
-	        sprintf(pbuf, "PMIC@SID%d Power-off eason: Unknown\n", g_pon[i]->spmi->sid);
+	        sprintf(pbuf, "PMIC@SID%d Power-off reason: Unknown\n", g_pon[i]->spmi->sid);
             ret += strlen(pbuf);
             pbuf += strlen(pbuf);
 	        continue;
@@ -2137,19 +2097,15 @@ static ssize_t pwroff_reason_show(struct kobject *kobj, struct kobj_attribute *a
 	        ret += strlen(pbuf);
             pbuf += strlen(pbuf);
         }
-
-        for(j=0; j<ARRAY_SIZE(qpnp_poff_reason); j++){
-            index = ((poff_sts>>j)&0x1)?j:-1;
-            if(index>=0){
-                sprintf(pbuf, "[%d] ", index);
-                ret += strlen(pbuf);
-                pbuf += strlen(pbuf);
-            }
+		for_each_set_bit(index, (unsigned long *)&poff_sts, ARRAY_SIZE(qpnp_poff_reason)){
+			sprintf(pbuf, "[%d] ", index);
+			ret += strlen(pbuf);
+			pbuf += strlen(pbuf);
         }
+		sprintf(pbuf, "Power-off status:[0x%x]\n", poff_sts);
+		ret += strlen(pbuf);
+		pbuf += strlen(pbuf);
 
-	    sprintf(pbuf, "\n");
-	    ret += strlen(pbuf);
-        pbuf += strlen(pbuf);
     }
 
     if(ret){
@@ -2195,7 +2151,6 @@ static int qpnp_pon_probe(struct spmi_device *spmi)
 		dev_err(&spmi->dev, "Can't allocate qpnp_pon\n");
 		return -ENOMEM;
 	}
-
 	sys_reset = of_property_read_bool(spmi->dev.of_node,
 						"qcom,system-reset");
 	if (sys_reset && sys_reset_dev) {
@@ -2299,19 +2254,20 @@ static int qpnp_pon_probe(struct spmi_device *spmi)
 			rc);
 		return rc;
 	}
-
-	index = ffs(pon_sts) - 1;
 	cold_boot = !qpnp_pon_is_warm_reset();
-	if (index >= ARRAY_SIZE(qpnp_pon_reason) || index < 0) {
-		dev_info(&pon->spmi->dev,
-			"PMIC@SID%d Power-on reason: Unknown and '%s' boot\n",
-			pon->spmi->sid, cold_boot ? "cold" : "warm");
-	} else {
-		pon->pon_trigger_reason = index;
-		dev_info(&pon->spmi->dev,
-			"PMIC@SID%d Power-on reason: %s and '%s' boot\n",
-			pon->spmi->sid, qpnp_pon_reason[index],
-			cold_boot ? "cold" : "warm");
+	//index = ffs(pon_sts) - 1;
+	for_each_set_bit(index, (unsigned long *)&pon_sts, ARRAY_SIZE(qpnp_pon_reason)){
+		if (index >= ARRAY_SIZE(qpnp_pon_reason) || index < 0) {
+			dev_info(&pon->spmi->dev,
+				"PMIC@SID%d Power-on reason: Unknown and '%s' boot\n",
+				pon->spmi->sid, cold_boot ? "cold" : "warm");
+		} else {
+				pon->pon_trigger_reason = index;
+				dev_info(&pon->spmi->dev,
+					"PMIC@SID%d Power-on reason: %s[0x%x] and '%s' boot\n",
+					pon->spmi->sid, qpnp_pon_reason[index],pon_sts,
+					cold_boot ? "cold" : "warm");
+		}
 	}
 
 	/* POFF reason */
@@ -2331,19 +2287,20 @@ static int qpnp_pon_probe(struct spmi_device *spmi)
 		}
 		poff_sts = buf[0] | (buf[1] << 8);
 	}
-	index = ffs(poff_sts) - 1 + reason_index_offset;
-	if (index >= ARRAY_SIZE(qpnp_poff_reason) || index < 0) {
-		dev_info(&pon->spmi->dev,
-				"PMIC@SID%d: Unknown power-off reason\n",
-				pon->spmi->sid);
-	} else {
-		pon->pon_power_off_reason = index;
-		dev_info(&pon->spmi->dev,
-				"PMIC@SID%d: Power-off reason: %s\n",
+	//index = ffs(poff_sts) - 1 + reason_index_offset;
+	for_each_set_bit(index, (unsigned long *)&poff_sts, ARRAY_SIZE(qpnp_poff_reason)){
+		if (index >= ARRAY_SIZE(qpnp_poff_reason) || index < 0) {
+			dev_info(&pon->spmi->dev,
+					"PMIC@SID%d: Unknown power-off reason\n",
+					pon->spmi->sid);
+		} else {
+			pon->pon_power_off_reason = index;
+			dev_info(&pon->spmi->dev,
+				"PMIC@SID%d: Power-off reason: %s[0x%x]\n",
 				pon->spmi->sid,
-				qpnp_poff_reason[index]);
+				qpnp_poff_reason[index],poff_sts);
+		}
 	}
-
     if((pon->spmi->sid)>=0 && (pon->spmi->sid)<PMIC_SID_NUM){
         g_pon[pon->spmi->sid] = pon;
         g_is_cold_boot[pon->spmi->sid] = cold_boot;
@@ -2429,7 +2386,6 @@ static int qpnp_pon_probe(struct spmi_device *spmi)
 
 	INIT_DELAYED_WORK(&pon->bark_work, bark_work_func);
 	INIT_DELAYED_WORK(&pon->press_work, press_work_func);
-
 	/* register the PON configurations */
 	rc = qpnp_pon_config_init(pon);
 	if (rc) {
@@ -2503,6 +2459,15 @@ static int qpnp_pon_probe(struct spmi_device *spmi)
 		dev_err(&spmi->dev, "sys file creation failed rc: %d\n",
 			rc);
 		return rc;
+	}
+
+	if (of_property_read_bool(spmi->dev.of_node,
+					"qcom,pon-reset-off")) {
+		rc = qpnp_pon_trigger_config(PON_CBLPWR_N, false);
+		if (rc) {
+			dev_err(&spmi->dev, "failed update the PON_CBLPWR %d\n",
+				rc);
+		}
 	}
 
 	if (of_property_read_bool(spmi->dev.of_node,

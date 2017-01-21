@@ -412,7 +412,25 @@ static void fusb301_check_orient(struct fusb301_info *info, u8 status)
 	u8 orient = ((status & STAT_ORIENT)>>STAT_ORIENT_SHIFT);
 	info->fusb_orient = orient;
 }
+static int set_property_on_smbchg(enum power_supply_property prop, int val)
+{
+	int rc;
+	union power_supply_propval ret = {0, };
+	struct power_supply *battery_psy;
 
+	battery_psy = power_supply_get_by_name("battery");
+	if (!battery_psy) {
+		pr_err("battery_psy not exist\n");
+		return -EINVAL;
+	}
+
+	ret.intval = val;
+	rc = battery_psy->set_property(battery_psy, prop, &ret);
+	if (rc)
+		pr_err("bms psy does not allow updating prop %d rc = %d\n",prop, rc);
+
+	return rc;
+}
 static irqreturn_t fusb301_irq_thread(int irq, void *handle)
 {
     u8 intr, rdata;
@@ -515,6 +533,7 @@ static irqreturn_t fusb301_irq_thread(int irq, void *handle)
 			dev_err(&info->i2c->dev,"%s : otg_present = (%d)\n",__func__,info->otg_present);
 			power_supply_set_usb_otg(info->usb_psy, info->otg_present ? 1 : 0);
 		}
+		set_property_on_smbchg(POWER_SUPPLY_PROP_CHECK_USB_UNPLUG, true);
 	}
 	else if(intr & INT_BC_LVL)
 	{
@@ -765,21 +784,6 @@ static int fusb301_probe(
 	    ret = -EINVAL;
 	    goto parse_dt_failed;
 	}
-/*
-	info->irq = irq_of_parse_and_map(np, 0);///////////TODO,changhua modify to add a irq_gpio,then gpio_request()-->gpio_direction_input()--->gpio_to_irq()
-	if (info->irq <= 0) {
-		printk(KERN_ERR "invalid eint number - %d\n", info->irq);
-		return -EINVAL;
-	}
-
-	//get gpio to control fusb340
-	info->switch_sel_gpio = of_get_named_gpio(np, "cc,sel-gpio", 0);
-	if (info->switch_sel_gpio <=0 )
-	{
-		printk(KERN_ERR "invalid gpio number - %d\n", info->switch_sel_gpio);
-		return -EINVAL;
-	}
-*/
     /* USBID, irq gpio info */
 	info->ID_gpio = of_get_named_gpio(np,"fusb301,ID-gpio", 0);
 	info->irq_gpio = of_get_named_gpio(np,"fusb301,irq-gpio", 0);
@@ -860,7 +864,7 @@ static int fusb301_probe(
 	/* Update initial state to USB */
 	if(!gpio_get_value(info->ID_gpio)){
 		//fusb301_otg_irq_thread(info->OTG_USB_ID_irq, info);
-		fusb301_reboot_scan_otg(info);/*Anderson-triger_scan_otg_after_reboot*/
+		fusb301_reboot_scan_otg(info);
 	}
 	return 0;
 

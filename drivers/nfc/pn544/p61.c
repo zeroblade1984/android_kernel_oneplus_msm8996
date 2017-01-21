@@ -41,6 +41,9 @@
 #include <linux/poll.h>
 #include <linux/regulator/consumer.h>
 #include <linux/nfc/p61.h>
+#include <linux/nfc/pn544.h>
+extern long  pn544_dev_ioctl(struct file *filp, unsigned int cmd,
+        unsigned long arg);
 #define DRAGON_P61 1
 
 /* Device driver's configuration macro */
@@ -184,7 +187,6 @@ static long p61_dev_ioctl(struct file *filp, unsigned int cmd,
                 P61_ERR_MSG(KERN_ALERT " ERROR : p61_regulator is not enabled");
             }
 #else
-			//ruanbanmao add for debug cs.
 			P61_DBG_MSG(KERN_ALERT " Soft Reset");
 			//gpio_set_value(p61_dev->rst_gpio, 1);
 			//msleep(20);
@@ -235,10 +237,17 @@ static long p61_dev_ioctl(struct file *filp, unsigned int cmd,
             p61_dev->enable_poll_mode = 1;
         }
         break;
+    case P61_SET_SPM_PWR:
+        P61_DBG_MSG(KERN_ALERT " P61_SET_SPM_PWR: enter");
+        ret = pn544_dev_ioctl(filp, P61_SET_SPI_PWR, arg);
+        P61_DBG_MSG(KERN_ALERT " P61_SET_SPM_PWR: exit");
+    break;
     default:
+        P61_DBG_MSG(KERN_ALERT " Error case");
         ret = -EINVAL;
     }
 
+    P61_DBG_MSG(KERN_ALERT "p61_dev_ioctl-exit %u arg = %ld\n", cmd, arg);
     return ret;
 }
 

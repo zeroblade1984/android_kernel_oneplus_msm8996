@@ -133,14 +133,12 @@ struct test_header {
 #define Mgestrue            12  // M
 #define Wgestrue            13  // W
 
-#ifdef VENDOR_EDIT_OXYGEN
 #define KEY_DOUBLE_TAP          249 // double tap to wake
 #define KEY_GESTURE_CIRCLE      250 // draw circle to lunch camera
 #define KEY_GESTURE_TWO_SWIPE	251 // swipe two finger vertically to play/pause
 #define KEY_GESTURE_V           252 // draw v to toggle flashlight
 #define KEY_GESTURE_LEFT_V      253 // draw left arrow for previous track
 #define KEY_GESTURE_RIGHT_V     254 // draw right arrow for next track
-#endif
 #define BIT0 (0x1 << 0)
 #define BIT1 (0x1 << 1)
 #define BIT2 (0x1 << 2)
@@ -166,7 +164,6 @@ int Down2UpSwip_gesture =0;//"down to up |"
 int Wgestrue_gesture =0;//"(W)"
 int Mgestrue_gesture =0;//"(M)"
 static int gesture_switch = 0;
-
 #endif
 
 /*********************for Debug LOG switch*******************/
@@ -333,6 +330,7 @@ static int synaptics_rmi4_i2c_read_word(struct i2c_client* client,
 static int synaptics_rmi4_i2c_write_word(struct i2c_client* client,
 		unsigned char addr,unsigned short data);
 static int synaptics_mode_change(int mode);
+
 #ifdef TPD_USE_EINT
 static irqreturn_t synaptics_irq_thread_fn(int irq, void *dev_id);
 #endif
@@ -403,18 +401,15 @@ static int oem_synaptics_ts_probe(struct i2c_client *client, const struct i2c_de
 	INIT_DELAYED_WORK(&(optimize_data.work), synaptics_ts_probe_func);
 	TPD_ERR("before on cpu [%d]\n",smp_processor_id());
 
-	//add by lifeng@bsp 2015-12-10 for only one cpu on line
 	for (i = 0; i < NR_CPUS; i++){
          TPD_ERR("check CPU[%d] is [%s]\n",i,cpu_is_offline(i)?"offline":"online");
 		 if (cpu_online(i) && (i != smp_processor_id()))
             break;
     }
     queue_delayed_work_on(i != NR_CPUS?i:0,optimize_data.workqueue,&(optimize_data.work),msecs_to_jiffies(300));
-    //end add by lifeng@bsp 2015-12-10 for only one cpu on line
 
 	return probe_ret;
 }
-
 static struct i2c_driver tpd_i2c_driver = {
 	.probe		= oem_synaptics_ts_probe,
 	.remove		= synaptics_ts_remove,
@@ -1076,9 +1071,7 @@ static void synaptics_get_coordinate_point(struct synaptics_ts_data *ts)
 	int ret,i;
 	uint8_t coordinate_buf[25] = {0};
 	uint16_t trspoint = 0;
-/* add by lifeng 2016/1/19 workarounds for the gestrue two interrupts begin*/
 	static uint8_t coordinate_buf_last[25]= {0};
-/* add by lifeng 2016/1/19 workarounds for the gestrue two interrupts end*/
 
 	TPD_DEBUG("%s is called!\n",__func__);
 	ret = synaptics_rmi4_i2c_write_byte(ts->client, 0xff, 0x4);
@@ -1087,7 +1080,6 @@ static void synaptics_get_coordinate_point(struct synaptics_ts_data *ts)
 	ret = i2c_smbus_read_i2c_block_data(ts->client, F51_CUSTOM_DATA11 + 16, 8, &(coordinate_buf[16]));
 	ret = i2c_smbus_read_i2c_block_data(ts->client, F51_CUSTOM_DATA11 + 24, 1, &(coordinate_buf[24]));
 
-/* add by lifeng 2016/1/19 workarounds for the gestrue two interrupts begin*/
     if(!memcmp(coordinate_buf_last,coordinate_buf,sizeof(coordinate_buf)))
     {
         TPD_ERR("%s reject the same gestrue[%d]\n",__func__,gesture);
@@ -1095,7 +1087,6 @@ static void synaptics_get_coordinate_point(struct synaptics_ts_data *ts)
     }
 	memcpy(coordinate_buf_last,coordinate_buf,sizeof(coordinate_buf));
    // strcpy(coordinate_buf_last,coordinate_buf/*,sizeof(coordinate_buf)*/);
-/* add by lifeng 2016/1/19 workarounds for the gestrue two interrupts end*/
 
 	for(i = 0; i< 23; i += 2) {
 		trspoint = coordinate_buf[i]|coordinate_buf[i+1] << 8;
@@ -1130,7 +1121,7 @@ static void gesture_judge(struct synaptics_ts_data *ts)
         if(version_is_s3508)
 		F12_2D_DATA04 = 0x0008;
 	else
-		F12_2D_DATA04 = 0x000A;
+ 		F12_2D_DATA04 = 0x000A;
 	TPD_DEBUG("%s start!\n",__func__);
 	ret = synaptics_rmi4_i2c_write_byte(ts->client, 0xff, 0x00);
 	if (ret < 0) {
@@ -1190,7 +1181,6 @@ static void gesture_judge(struct synaptics_ts_data *ts)
 				UnkownGestrue;
 	}
 
-#ifdef VENDOR_EDIT_OXYGEN
 	keyCode = UnkownGestrue;
 	// Get key code based on registered gesture.
 	switch (gesture) {
@@ -1218,7 +1208,6 @@ static void gesture_judge(struct synaptics_ts_data *ts)
 		default:
 			break;
 	}
-#endif
 
 	TPD_ERR("detect %s gesture\n", gesture == DouTap ? "(double tap)" :
 			gesture == UpVee ? "(V)" :
@@ -2427,14 +2416,12 @@ static int	synaptics_input_init(struct synaptics_ts_data *ts)
 	set_bit(BTN_TOOL_FINGER, ts->input_dev->keybit);
 #ifdef SUPPORT_GESTURE
 	set_bit(KEY_F4 , ts->input_dev->keybit);//doulbe-tap resume
-#ifdef VENDOR_EDIT_OXYGEN
 	set_bit(KEY_DOUBLE_TAP, ts->input_dev->keybit);
 	set_bit(KEY_GESTURE_CIRCLE, ts->input_dev->keybit);
 	set_bit(KEY_GESTURE_V, ts->input_dev->keybit);
 	set_bit(KEY_GESTURE_TWO_SWIPE, ts->input_dev->keybit);
 	set_bit(KEY_GESTURE_LEFT_V, ts->input_dev->keybit);
 	set_bit(KEY_GESTURE_RIGHT_V, ts->input_dev->keybit);
-#endif
 #endif
 	/* For multi touch */
 	input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
@@ -2546,7 +2533,7 @@ static int synatpitcs_fw_update(struct device *dev, bool force)
 		       }
 		}
 
-	}else if(!strncmp(ts->manu_name,"S3508",5) || !strncmp(ts->manu_name,"15811",5)){
+	}else if(!strncmp(ts->manu_name,"S3508",5) || !strncmp(ts->manu_name,"15811",5) || !strncmp(ts->manu_name,"s3508",5)){
 		        TPD_ERR("enter version 15811 update mode\n");
 			push_component_info(TP, ts->fw_id, "S3508");
 			ret = request_firmware(&fw, ts->fw_name, dev);
@@ -2604,15 +2591,15 @@ static ssize_t synaptics_update_fw_store(struct device *dev,
 		return size;
 	}
 	if(version_is_s3508){
-		if (strncmp(ts->manu_name,"S3508",5) && strncmp(ts->manu_name,"15811",5)){
-			TPD_ERR("product name[%s] do not update!\n",ts->manu_name);
-			return size;
-		 }
+		if (strncmp(ts->manu_name,"S3508",5) && strncmp(ts->manu_name,"15811",5) && strncmp(ts->manu_name,"s3508",5)){
+        		TPD_ERR("product name[%s] do not update!\n",ts->manu_name);
+        		return size;
+   		 }
 	}else{
-		if (strncmp(ts->manu_name,"S3718",5)){
-			TPD_ERR("product name[%s] do not update!\n",ts->manu_name);
-			return size;
-		 }
+    		if (strncmp(ts->manu_name,"S3718",5)){
+        		TPD_ERR("product name[%s] do not update!\n",ts->manu_name);
+        		return size;
+   		 }
 	}
 	TPD_ERR("start update ******* fw_name:%s,ts->manu_name:%s\n",ts->fw_name,ts->manu_name);
 
@@ -3394,7 +3381,7 @@ static int synapitcs_ts_update(struct i2c_client *client, const uint8_t *data, u
 		if (ret){
 			return -1;
 		}
-	}else if(!strncmp(ts->manu_name,"S3508",5) || !strncmp(ts->manu_name,"15811",5)){
+	}else if(!strncmp(ts->manu_name,"S3508",5) || !strncmp(ts->manu_name,"15811",5) || !strncmp(ts->manu_name,"s3508",5)){
 		parse_header(&header,data);
 		if((header.firmware_size + header.config_size + 0x100) > data_len) {
 			TPDTM_DMESG("firmware_size + config_size + 0x100 > data_len data_len = %d \n",data_len);

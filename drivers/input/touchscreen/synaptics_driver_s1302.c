@@ -228,14 +228,12 @@ static int oem_synaptics_ts_probe(struct i2c_client *client, const struct i2c_de
 	//spin_lock_irqsave(&oem_lock, flags);
 	if(get_boot_mode() == MSM_BOOT_MODE__NORMAL)
 	{
-	    //add by lifeng@bsp 2015-12-10 for only one cpu on line
 		for (i = 0; i < NR_CPUS; i++){
             TPD_ERR("boot_time: [synaptics_ts_probe] CPU%d is %s\n",i,cpu_is_offline(i)?"offline":"online");
             if (cpu_online(i) && (i != smp_processor_id()))
                 break;
 	    }
         queue_delayed_work_on(i != NR_CPUS?i:0,optimize_data.workqueue,&(optimize_data.work),msecs_to_jiffies(300));
-        //end add by lifeng@bsp 2015-12-10 for only one cpu on line
 	}else{
 		queue_delayed_work_on(0,optimize_data.workqueue,&(optimize_data.work),msecs_to_jiffies(300));
 	}
@@ -1307,12 +1305,12 @@ static void synaptics_rawdata_get(struct synaptics_ts_data *ts,char *buffer)
 	ssize_t num_read_chars = 0;
 	uint8_t tmp_l = 0, tmp_h = 0;
 	uint16_t count = 0;
-    uint16_t delta[2][5];
+	uint16_t delta[2][5];
 	unsigned char buf[4];
-    char f54_data_base_add,f54_command_base_add,f54_control_base_add;
+	char f54_data_base_add,f54_command_base_add,f54_control_base_add;
 
 	/*disable irq when read data from IC*/
-    memset(delta,0,sizeof(delta));
+	memset(delta,0,sizeof(delta));
 	if(ts->using_polling)
 		cancel_delayed_work_sync(&ts->dwork);
 	else
@@ -1320,10 +1318,10 @@ static void synaptics_rawdata_get(struct synaptics_ts_data *ts,char *buffer)
 	delay_qt_ms(30);
 	ret = synaptics_rmi4_i2c_write_byte(ts->client, 0xff, 0x1);
 	ret = synaptics_rmi4_i2c_read_block(ts->client, 0xE9, 4, &(buf[0x0]));
-    f54_command_base_add = buf[1];
-    f54_control_base_add = buf[2];
-    f54_data_base_add = buf[3];
-    TPD_DEBUG("buf0[0x%x],buf1[0x%x],buf2[0x%x],buf3[0x%x]\n",buf[0],buf[1],buf[2],buf[3]);
+	f54_command_base_add = buf[1];
+	f54_control_base_add = buf[2];
+	f54_data_base_add = buf[3];
+	TPD_DEBUG("buf0[0x%x],buf1[0x%x],buf2[0x%x],buf3[0x%x]\n",buf[0],buf[1],buf[2],buf[3]);
 	ret = synaptics_rmi4_i2c_write_byte(ts->client, f54_data_base_add, 0x02);//select report type 0x02
 	ret = synaptics_rmi4_i2c_write_word(ts->client, f54_data_base_add+1, 0x00);//set fifo 00
 	ret = synaptics_rmi4_i2c_write_byte(ts->client, f54_command_base_add, 0X01);//get report
@@ -1351,11 +1349,12 @@ static void synaptics_rawdata_get(struct synaptics_ts_data *ts,char *buffer)
 	}
 	//ret = i2c_smbus_write_byte_data(ts->client,f54_command_base_add,0X02);
 	delay_qt_ms(60);
-    synaptics_enable_interrupt(ts, 1);
+	synaptics_enable_interrupt(ts, 1);
 	if(ts->using_polling)
 		schedule_delayed_work(&ts->dwork, msecs_to_jiffies(polling_interval));
 	else
-    enable_irq(ts->irq);
+		enable_irq(ts->irq);
+
 }
 static int synaptics_key_strength_show(struct seq_file *seq, void *offset)
 {
@@ -1412,9 +1411,9 @@ static ssize_t tp_baseline_show(struct file *file, char __user *buf, size_t size
 //	uint8_t tmp_new = 0;
 	uint8_t tmp_l = 0,tmp_h = 0;
 	uint16_t count = 0;
-
+	//struct synaptics_ts_data *ts = tc_g;
 	int16_t baseline_data[2][5];
-    char f54_data_base_add,f54_command_base_add,f54_control_base_add;
+	char f54_data_base_add,f54_command_base_add,f54_control_base_add;
 
 	if(tc_g->is_suspended == 1)
 		return count;
@@ -1432,13 +1431,14 @@ static ssize_t tp_baseline_show(struct file *file, char __user *buf, size_t size
 	else
 		disable_irq(tc_g->irq);
 	msleep(30);
+
 	memset(delta_baseline, 0, sizeof(delta_baseline));
 	ret = synaptics_rmi4_i2c_write_byte(tc_g->client, 0xff, 0x1);
 	ret = synaptics_rmi4_i2c_read_block(tc_g->client, 0xE9, 4, &(buf[0x0]));
-    f54_command_base_add = buf[1];
-    f54_control_base_add = buf[2];
-    f54_data_base_add = buf[3];
-    TPD_DEBUG("buf0[0x%x],buf1[0x%x],buf2[0x%x],buf3[0x%x]\n",buf[0],buf[1],buf[2],buf[3]);
+	f54_command_base_add = buf[1];
+	f54_control_base_add = buf[2];
+	f54_data_base_add = buf[3];
+	TPD_DEBUG("buf0[0x%x],buf1[0x%x],buf2[0x%x],buf3[0x%x]\n",buf[0],buf[1],buf[2],buf[3]);
 	ret = synaptics_rmi4_i2c_write_byte(tc_g->client, f54_data_base_add, 0x02);//select report type 0x02
 	ret = synaptics_rmi4_i2c_write_word(tc_g->client, f54_data_base_add+1, 0x00);//set fifo 00
 	ret = synaptics_rmi4_i2c_write_byte(tc_g->client, f54_command_base_add, 0X01);//get report
@@ -1497,6 +1497,8 @@ static ssize_t tp_baseline_show(struct file *file, char __user *buf, size_t size
 
 	ret = synaptics_rmi4_i2c_write_byte(tc_g->client,F54_ANALOG_COMMAND_BASE,0X02);
 	delay_qt_ms(60);
+	ret = synaptics_soft_reset(tc_g);
+	delay_qt_ms(100);
 	synaptics_enable_interrupt(tc_g,1);
 	mutex_unlock(&tc_g->mutex);
 

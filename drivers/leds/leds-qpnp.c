@@ -1,5 +1,5 @@
 
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -249,6 +249,7 @@
 #define KPDBL_MODULE_EN_MASK		0x80
 #define NUM_KPDBL_LEDS			4
 #define KPDBL_MASTER_BIT_INDEX		0
+static u8	shutdown_enable = 0;
 
 /**
  * enum qpnp_leds - QPNP supported led ids
@@ -1251,7 +1252,7 @@ regulator_turn_off:
 
 static int qpnp_flash_set(struct qpnp_led_data *led)
 {
-	int rc, error;
+	int rc = 0, error;
 	int val = led->cdev.brightness;
 
 	if (led->flash_cfg->torch_enable)
@@ -1289,8 +1290,8 @@ static int qpnp_flash_set(struct qpnp_led_data *led)
 				}
 			}
 
-			qpnp_led_masked_write(led, FLASH_MAX_CURR(led->base),
-				FLASH_CURRENT_MASK,
+			rc = qpnp_led_masked_write(led,
+				FLASH_MAX_CURR(led->base), FLASH_CURRENT_MASK,
 				TORCH_MAX_LEVEL);
 			if (rc) {
 				dev_err(&led->spmi_dev->dev,
@@ -1299,7 +1300,7 @@ static int qpnp_flash_set(struct qpnp_led_data *led)
 				goto error_reg_write;
 			}
 
-			qpnp_led_masked_write(led,
+			rc = qpnp_led_masked_write(led,
 				FLASH_LED_TMR_CTRL(led->base),
 				FLASH_TMR_MASK,
 				FLASH_TMR_WATCHDOG);
@@ -1331,7 +1332,7 @@ static int qpnp_flash_set(struct qpnp_led_data *led)
 				goto error_reg_write;
 			}
 
-			qpnp_led_masked_write(led,
+			rc = qpnp_led_masked_write(led,
 				FLASH_WATCHDOG_TMR(led->base),
 				FLASH_WATCHDOG_MASK,
 				led->flash_cfg->duration);
@@ -1379,7 +1380,7 @@ static int qpnp_flash_set(struct qpnp_led_data *led)
 				goto error_flash_set;
 			}
 
-			qpnp_led_masked_write(led,
+			rc = qpnp_led_masked_write(led,
 				FLASH_LED_TMR_CTRL(led->base),
 				FLASH_TMR_MASK,
 				FLASH_TMR_SAFETY);
@@ -2580,6 +2581,7 @@ static ssize_t duty_pcts_store(struct device *dev,
 
 	num_duty_pcts = 11;
 
+
 	if (num_duty_pcts >= max_duty_pcts) {
 		dev_err(&led->spmi_dev->dev,
 			"Number of duty pcts given exceeds max (%d)\n",
@@ -2697,6 +2699,42 @@ static ssize_t blink_store(struct device *dev,
 	return count;
 }
 
+static ssize_t shutdown_enable_show(struct device *dev,
+				 struct device_attribute *attr,
+				 char *buf)
+{
+	return sprintf(buf, "%d\n", shutdown_enable);
+}
+
+static ssize_t shutdown_enable_store(struct device *dev,
+	struct device_attribute *attr,
+	const char *buf, size_t count)
+{
+
+	if (count < 1)
+		return -EINVAL;
+
+	switch (buf[0]) {
+	case '0':
+		shutdown_enable = 0;
+		break;
+	case '3':
+		shutdown_enable = 3;
+		break;
+	case '4':
+		shutdown_enable = 4;
+		break;
+	case '5':
+		shutdown_enable = 5;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return count;
+
+}
+
 static DEVICE_ATTR(led_mode, 0664, NULL, led_mode_store);
 static DEVICE_ATTR(strobe, 0664, NULL, led_strobe_type_store);
 static DEVICE_ATTR(pwm_us, 0664, NULL, pwm_us_store);
@@ -2707,7 +2745,7 @@ static DEVICE_ATTR(ramp_step_ms, 0664, NULL, ramp_step_ms_store);
 static DEVICE_ATTR(lut_flags, 0664, NULL, lut_flags_store);
 static DEVICE_ATTR(duty_pcts, 0664, NULL, duty_pcts_store);
 static DEVICE_ATTR(blink, 0664, NULL, blink_store);
-
+static DEVICE_ATTR(enable, 0644, shutdown_enable_show, shutdown_enable_store);
 static struct attribute *led_attrs[] = {
 	&dev_attr_led_mode.attr,
 	&dev_attr_strobe.attr,
@@ -2720,6 +2758,7 @@ static const struct attribute_group led_attr_group = {
 
 static struct attribute *pwm_attrs[] = {
 	&dev_attr_pwm_us.attr,
+	&dev_attr_enable.attr,
 	NULL
 };
 
@@ -4235,6 +4274,37 @@ static int qpnp_leds_remove(struct spmi_device *spmi)
 	return 0;
 }
 
+static void qpnp_leds_shutdown(struct spmi_device *spmi)
+{
+	struct qpnp_led_data *led_array = dev_get_drvdata(&spmi->dev);
+	int i, parsed_leds = led_array->num_leds;
+
+	for (i = 0; i < parsed_leds; i++) {
+		if(led_array[i].id == QPNP_ID_RGB_RED){
+			if(shutdown_enable == QPNP_ID_RGB_RED)
+				led_array[i].cdev.brightness = LED_FULL;
+			else
+				led_array[i].cdev.brightness = LED_OFF;
+		}
+	    else if(led_array[i].id == QPNP_ID_RGB_GREEN){
+			if(shutdown_enable == QPNP_ID_RGB_GREEN)
+				led_array[i].cdev.brightness = LED_FULL;
+			else
+				led_array[i].cdev.brightness = LED_OFF;
+		}
+		else if(led_array[i].id == QPNP_ID_RGB_BLUE){
+			if(shutdown_enable == QPNP_ID_RGB_BLUE)
+				led_array[i].cdev.brightness = LED_FULL;
+			else
+				led_array[i].cdev.brightness = LED_OFF;
+		}
+		else
+			led_array[i].cdev.brightness = LED_OFF;
+
+		__qpnp_led_work(led_array+i, led_array[i].cdev.brightness);
+	}
+}
+
 #ifdef CONFIG_OF
 static struct of_device_id spmi_match_table[] = {
 	{ .compatible = "qcom,leds-qpnp",},
@@ -4251,6 +4321,7 @@ static struct spmi_driver qpnp_leds_driver = {
 	},
 	.probe		= qpnp_leds_probe,
 	.remove		= qpnp_leds_remove,
+	.shutdown	= qpnp_leds_shutdown,
 };
 
 static int __init qpnp_led_init(void)

@@ -452,7 +452,7 @@ static irqreturn_t fpc1020_irq_handler(int irq, void *handle)
 		wake_lock_timeout(&fpc1020->ttw_wl, msecs_to_jiffies(FPC_TTW_HOLD_TIME));
 	}
 */
-	wake_lock_timeout(&fpc1020->ttw_wl, msecs_to_jiffies(FPC_TTW_HOLD_TIME));//changhua add for KeyguardUpdateMonitor: fingerprint acquired, grabbing fp wakelock
+	wake_lock_timeout(&fpc1020->ttw_wl, msecs_to_jiffies(FPC_TTW_HOLD_TIME));
     //dev_err(fpc1020->dev, "%s before sysfs_notify\n", __func__);
 
 	sysfs_notify(&fpc1020->dev->kobj, NULL, dev_attr_irq.attr.name);
@@ -576,7 +576,7 @@ static int fpc1020_probe(struct platform_device *pdev)
 		goto exit;
 	}
 	
-    #if 0 //changhua remove HW reset here,move to HAL,after spi cs pin become high
+    #if 0
 	rc = gpio_direction_output(fpc1020->rst_gpio, 1);
 
 	if (rc) {

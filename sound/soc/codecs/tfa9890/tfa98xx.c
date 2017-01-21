@@ -281,6 +281,7 @@ int tfa98xx_bulk_write_raw(struct snd_soc_codec *codec, const u8 *data,
 }
 
 
+
 static void tfa98xx_dsp_init(struct work_struct *work)
 {
 	struct tfa98xx *tfa98xx = container_of(work, struct tfa98xx, init_work);

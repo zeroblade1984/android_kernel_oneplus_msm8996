@@ -97,21 +97,23 @@ static const char *cpu_name;
 static const char *machine_name;
 phys_addr_t __fdt_pointer __initdata;
 
-#define MAX_ITEM 4
+#define MAX_ITEM 5
 #define MAX_LENGTH 32
 
 enum
 {
-        serialno = 0,
-        hw_version,
-        rf_version,
-        ddr_manufacture_info
+	serialno = 0,
+	hw_version,
+	rf_version,
+	ddr_manufacture_info,
+	pcba_number
 };
 
 char oem_serialno[16];
 char oem_hw_version[3];
 char oem_rf_version[3];
 char oem_ddr_manufacture_info[16];
+char oem_pcba_number[30];
 
 const char cmdline_info[MAX_ITEM][MAX_LENGTH] =
 {
@@ -119,6 +121,7 @@ const char cmdline_info[MAX_ITEM][MAX_LENGTH] =
 	"androidboot.hw_version=",
 	"androidboot.rf_version=",
 	"ddr_manufacture_info=",
+	"androidboot.pcba_number=",
 };
 
 
@@ -353,9 +356,10 @@ static void __init setup_machine_fdt(phys_addr_t dt_phys)
 	}
 
 	machine_name = of_flat_dt_get_machine_name();
-	dump_stack_set_arch_desc("%s (DT)", machine_name);
-	if (machine_name)
+	if (machine_name) {
+		dump_stack_set_arch_desc("%s (DT)", machine_name);
 		pr_info("Machine: %s\n", machine_name);
+	}
 }
 
 /*
@@ -405,6 +409,69 @@ static void __init request_standard_resources(void)
 	}
 }
 
+#ifdef CONFIG_BLK_DEV_INITRD
+/*
+ * Relocate initrd if it is not completely within the linear mapping.
+ * This would be the case if mem= cuts out all or part of it.
+ */
+static void __init relocate_initrd(void)
+{
+	phys_addr_t orig_start = __virt_to_phys(initrd_start);
+	phys_addr_t orig_end = __virt_to_phys(initrd_end);
+	phys_addr_t ram_end = memblock_end_of_DRAM();
+	phys_addr_t new_start;
+	unsigned long size, to_free = 0;
+	void *dest;
+
+	if (orig_end <= ram_end)
+		return;
+
+	/*
+	 * Any of the original initrd which overlaps the linear map should
+	 * be freed after relocating.
+	 */
+	if (orig_start < ram_end)
+		to_free = ram_end - orig_start;
+
+	size = orig_end - orig_start;
+	if (!size)
+		return;
+
+	/* initrd needs to be relocated completely inside linear mapping */
+	new_start = memblock_find_in_range(0, PFN_PHYS(max_pfn),
+					   size, PAGE_SIZE);
+	if (!new_start)
+		panic("Cannot relocate initrd of size %ld\n", size);
+	memblock_reserve(new_start, size);
+
+	initrd_start = __phys_to_virt(new_start);
+	initrd_end   = initrd_start + size;
+
+	pr_info("Moving initrd from [%llx-%llx] to [%llx-%llx]\n",
+		orig_start, orig_start + size - 1,
+		new_start, new_start + size - 1);
+
+	dest = (void *)initrd_start;
+
+	if (to_free) {
+		memcpy(dest, (void *)__phys_to_virt(orig_start), to_free);
+		dest += to_free;
+	}
+
+	copy_from_early_mem(dest, orig_start + to_free, size - to_free);
+
+	if (to_free) {
+		pr_info("Freeing original RAMDISK from [%llx-%llx]\n",
+			orig_start, orig_start + to_free - 1);
+		memblock_free(orig_start, to_free);
+	}
+}
+#else
+static inline void __init relocate_initrd(void)
+{
+}
+#endif
+
 static int __init device_info_init(void)
 {
 	int i, j;
@@ -426,6 +493,8 @@ static int __init device_info_init(void)
 			target_str = oem_rf_version;
 		else if(i == ddr_manufacture_info)
 			target_str = oem_ddr_manufacture_info;
+		else if(i == pcba_number)
+			target_str = oem_pcba_number;
 
 		for(j=0; substr[j] != ' '; j++)
 			target_str[j] = substr[j];
@@ -466,11 +535,13 @@ void __init setup_arch(char **cmdline_p)
 	arm64_memblock_init();
 
 	paging_init();
+	relocate_initrd();
 
 	kasan_init();
 
 	request_standard_resources();
 
+	efi_virtmap_init();
 	early_ioremap_reset();
 
 	unflatten_device_tree();
@@ -569,6 +640,8 @@ static int c_show(struct seq_file *m, void *v)
 {
 	int i, j;
 
+	seq_printf(m, "Processor\t: %s rev %d (%s)\n",
+		cpu_name, read_cpuid_id() & 15, ELF_PLATFORM);
 	for_each_present_cpu(i) {
 		struct cpuinfo_arm64 *cpuinfo = &per_cpu(cpu_data, i);
 		u32 midr = cpuinfo->reg_midr;
@@ -581,6 +654,10 @@ static int c_show(struct seq_file *m, void *v)
 #ifdef CONFIG_SMP
 		seq_printf(m, "processor\t: %d\n", i);
 #endif
+
+		seq_printf(m, "BogoMIPS\t: %lu.%02lu\n",
+			   loops_per_jiffy / (500000UL/HZ),
+			   loops_per_jiffy / (5000UL/HZ) % 100);
 
 		/*
 		 * Dump out the common processor features in a single line.
@@ -618,8 +695,6 @@ static int c_show(struct seq_file *m, void *v)
 		seq_printf(m, "Hardware\t: %s\n", machine_name);
 	else
 		seq_printf(m, "Hardware\t: %s\n", arch_read_hardware_id());
-	seq_printf(m, "Processor\t: %s rev %d (%s)\n",
-			cpu_name, read_cpuid_id() & 15, ELF_PLATFORM);
 
 	return 0;
 }

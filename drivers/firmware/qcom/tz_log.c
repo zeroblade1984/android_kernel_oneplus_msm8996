@@ -24,6 +24,8 @@
 #include <linux/uaccess.h>
 #include <linux/of.h>
 
+#include <linux/proc_fs.h>
+
 #include <soc/qcom/scm.h>
 #include <soc/qcom/qseecomi.h>
 
@@ -54,6 +56,10 @@
  */
 #define TZBSP_MAX_INT_DESC 16
 /*
+ * TZ 3.X version info
+ */
+#define QSEE_VERSION_TZ_3_X 0x800000
+/*
  * VMID Table
  */
 struct tzdbg_vmid_t {
@@ -70,6 +76,19 @@ struct tzdbg_boot_info_t {
 	uint32_t pc_exit_cnt;	/* Power Collapse exit CPU counter */
 	uint32_t warm_jmp_addr;	/* Last Warmboot Jump Address */
 	uint32_t spare;	/* Reserved for future use. */
+};
+/*
+ * Boot Info Table for 64-bit
+ */
+struct tzdbg_boot_info64_t {
+	uint32_t wb_entry_cnt;  /* Warmboot entry CPU Counter */
+	uint32_t wb_exit_cnt;   /* Warmboot exit CPU Counter */
+	uint32_t pc_entry_cnt;  /* Power Collapse entry CPU Counter */
+	uint32_t pc_exit_cnt;   /* Power Collapse exit CPU counter */
+	uint32_t psci_entry_cnt;/* PSCI syscall entry CPU Counter */
+	uint32_t psci_exit_cnt;   /* PSCI syscall exit CPU Counter */
+	uint64_t warm_jmp_addr; /* Last Warmboot Jump Address */
+	uint32_t warm_jmp_instr; /* Last Warmboot Jump Address Instruction */
 };
 /*
  * Reset Info Table
@@ -318,30 +337,90 @@ static int _disp_tz_boot_stats(void)
 {
 	int i;
 	int len = 0;
-	struct tzdbg_boot_info_t *ptr;
+	struct tzdbg_boot_info_t *ptr = NULL;
+	struct tzdbg_boot_info64_t *ptr_64 = NULL;
+	int ret = 0;
+	uint32_t smc_id = 0;
+	uint32_t feature = 10;
+	struct qseecom_command_scm_resp resp = {};
+	struct scm_desc desc = {0};
 
-	ptr = (struct tzdbg_boot_info_t *)((unsigned char *)tzdbg.diag_buf +
-					tzdbg.diag_buf->boot_info_off);
+	if (!is_scm_armv8()) {
+		ret = scm_call(SCM_SVC_INFO, SCM_SVC_UTIL,  &feature,
+					sizeof(feature), &resp, sizeof(resp));
+	} else {
+		smc_id = TZ_INFO_GET_FEATURE_VERSION_ID;
+		desc.arginfo = TZ_INFO_GET_FEATURE_VERSION_ID_PARAM_ID;
+		desc.args[0] = feature;
+		ret = scm_call2(smc_id, &desc);
+		resp.result = desc.ret[0];
+	}
+
+	if (ret) {
+		pr_err("%s: scm_call to register log buffer failed\n",
+				__func__);
+		return 0;
+	}
+	pr_info("qsee_version = 0x%x\n", resp.result);
+
+	if (resp.result >= QSEE_VERSION_TZ_3_X) {
+		ptr_64 = (struct tzdbg_boot_info64_t *)((unsigned char *)
+			tzdbg.diag_buf + tzdbg.diag_buf->boot_info_off);
+	} else {
+		ptr = (struct tzdbg_boot_info_t *)((unsigned char *)
+			tzdbg.diag_buf + tzdbg.diag_buf->boot_info_off);
+	}
 
 	for (i = 0; i < tzdbg.diag_buf->cpu_count; i++) {
-		len += snprintf(tzdbg.disp_buf + len,
-				(debug_rw_buf_size - 1) - len,
-				"  CPU #: %d\n"
-				"     Warmboot jump address     : 0x%x\n"
-				"     Warmboot entry CPU counter: 0x%x\n"
-				"     Warmboot exit CPU counter : 0x%x\n"
-				"     Power Collapse entry CPU counter: 0x%x\n"
-				"     Power Collapse exit CPU counter : 0x%x\n",
-				i, ptr->warm_jmp_addr, ptr->wb_entry_cnt,
-				ptr->wb_exit_cnt, ptr->pc_entry_cnt,
-				ptr->pc_exit_cnt);
+		if (resp.result >= QSEE_VERSION_TZ_3_X) {
+			len += snprintf(tzdbg.disp_buf + len,
+					(debug_rw_buf_size - 1) - len,
+					"  CPU #: %d\n"
+					"     Warmboot jump address : 0x%llx\n"
+					"     Warmboot entry CPU counter : 0x%x\n"
+					"     Warmboot exit CPU counter : 0x%x\n"
+					"     Power Collapse entry CPU counter : 0x%x\n"
+					"     Power Collapse exit CPU counter : 0x%x\n"
+					"     Psci entry CPU counter : 0x%x\n"
+					"     Psci exit CPU counter : 0x%x\n"
+					"     Warmboot Jump Address Instruction : 0x%x\n",
+					i, (uint64_t)ptr_64->warm_jmp_addr,
+					ptr_64->wb_entry_cnt,
+					ptr_64->wb_exit_cnt,
+					ptr_64->pc_entry_cnt,
+					ptr_64->pc_exit_cnt,
+					ptr_64->psci_entry_cnt,
+					ptr_64->psci_exit_cnt,
+					ptr_64->warm_jmp_instr);
 
-		if (len > (debug_rw_buf_size - 1)) {
-			pr_warn("%s: Cannot fit all info into the buffer\n",
-								__func__);
-			break;
+			if (len > (debug_rw_buf_size - 1)) {
+				pr_warn("%s: Cannot fit all info into the buffer\n",
+						__func__);
+				break;
+			}
+			ptr_64++;
+		} else {
+			len += snprintf(tzdbg.disp_buf + len,
+					(debug_rw_buf_size - 1) - len,
+					"  CPU #: %d\n"
+					"     Warmboot jump address     : 0x%x\n"
+					"     Warmboot entry CPU counter: 0x%x\n"
+					"     Warmboot exit CPU counter : 0x%x\n"
+					"     Power Collapse entry CPU counter: 0x%x\n"
+					"     Power Collapse exit CPU counter : 0x%x\n",
+					i, ptr->warm_jmp_addr,
+					ptr->wb_entry_cnt,
+					ptr->wb_exit_cnt,
+					ptr->pc_entry_cnt,
+					ptr->pc_exit_cnt);
+
+			if (len > (debug_rw_buf_size - 1)) {
+				pr_warn("%s: Cannot fit all info into the buffer\n",
+						__func__);
+				break;
+			}
+			ptr++;
 		}
-		ptr++;
 	}
 	tzdbg.stat[TZDBG_BOOT].data = tzdbg.disp_buf;
 	return len;
@@ -806,6 +885,59 @@ err1:
 	g_ion_clnt = NULL;
 }
 
+static ssize_t proc_qsee_log_func(struct file *file, char __user *user_buf, size_t count, loff_t *ppos)
+{
+	int len =0;
+	memcpy_fromio((void *)tzdbg.diag_buf, tzdbg.virt_iobase,
+						debug_rw_buf_size);
+	memcpy_fromio((void *)tzdbg.hyp_diag_buf, tzdbg.hyp_virt_iobase,
+					tzdbg.hyp_debug_rw_buf_size);
+	len = _disp_qsee_log_stats(count);
+	*ppos = 0;
+
+	if (len > count)
+		len = count;
+	
+	return simple_read_from_buffer(user_buf, len, ppos,tzdbg.stat[6].data, len);
+}
+
+
+static const struct file_operations proc_qsee_log_fops = {
+	.read =  proc_qsee_log_func,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+};
+
+static int tzprocfs_init(struct platform_device *pdev)
+{
+
+    int rc = 0;
+	struct proc_dir_entry *prEntry_tmp  = NULL;
+	struct proc_dir_entry *prEntry_dir  = NULL;
+
+	prEntry_dir = proc_mkdir("tzdbg", NULL);
+
+	if (prEntry_dir == NULL) {
+		dev_err(&pdev->dev,"tzdbg procfs_create_dir failed\n");
+		return -ENOMEM;
+	}
+
+	prEntry_tmp = proc_create("qsee_log",0666,prEntry_dir, &proc_qsee_log_fops);
+
+    if (prEntry_tmp  == NULL) {
+      dev_err(&pdev->dev, "TZ debugfs_create_file failed\n");
+      rc = -ENOMEM;
+      goto err;
+    }
+
+	return 0;
+err:
+	proc_remove(prEntry_dir);
+
+	return rc;
+}
+
+
 static int  tzdbgfs_init(struct platform_device *pdev)
 {
 	int rc = 0;
@@ -845,6 +977,7 @@ err:
 
 	return rc;
 }
+
 
 static void tzdbgfs_exit(struct platform_device *pdev)
 {
@@ -990,6 +1123,8 @@ static int tz_log_probe(struct platform_device *pdev)
 	tzdbg.diag_buf = (struct tzdbg_t *)ptr;
 
 	if (tzdbgfs_init(pdev))
+		goto err;
+	if(tzprocfs_init(pdev))
 		goto err;
 
 	tzdbg_register_qsee_log_buf();

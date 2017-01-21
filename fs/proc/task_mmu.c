@@ -503,6 +503,7 @@ struct mem_size_stats {
 	unsigned long swap;
 	unsigned long nonlinear;
 	u64 pss;
+	u64 swap_pss;
 };
 
 
@@ -520,9 +521,20 @@ static void smaps_pte_entry(pte_t ptent, unsigned long addr,
 	} else if (is_swap_pte(ptent)) {
 		swp_entry_t swpent = pte_to_swp_entry(ptent);
 
-		if (!non_swap_entry(swpent))
-			mss->swap += ptent_size;
-		else if (is_migration_entry(swpent))
+		if (!non_swap_entry(swpent)) {
+			int mapcount;
+
+			mss->swap += PAGE_SIZE;
+			mapcount = swp_swapcount(swpent);
+			if (mapcount >= 2) {
+				u64 pss_delta = (u64)PAGE_SIZE << PSS_SHIFT;
+
+				do_div(pss_delta, mapcount);
+				mss->swap_pss += pss_delta;
+			} else {
+				mss->swap_pss += (u64)PAGE_SIZE << PSS_SHIFT;
+			}
+		} else if (is_migration_entry(swpent))
 			page = migration_entry_to_page(swpent);
 	} else if (pte_file(ptent)) {
 		if (pte_to_pgoff(ptent) != pgoff)
@@ -657,9 +669,31 @@ static int show_smap(struct seq_file *m, void *v, int is_pid)
 	/* mmap_sem is held in m_start */
 	if (vma->vm_mm && !is_vm_hugetlb_page(vma))
 		walk_page_range(vma->vm_start, vma->vm_end, &smaps_walk);
-
+        if (strcmp(current->comm, "android.bg") == 0) {
+            if ((unsigned long)(mss.pss >> (10 + PSS_SHIFT)) > 0) {
+                seq_printf(m,
+                "Pss:            %8lu kB\n",
+                (unsigned long)(mss.pss >> (10 + PSS_SHIFT)));
+            }
+            if ((mss.private_clean >> 10) > 0) {
+                seq_printf(m,
+                "Private_Clean:  %8lu kB\n",
+                mss.private_clean >> 10);
+            }
+            if ((mss.private_dirty >> 10) > 0) {
+                seq_printf(m,
+                "Private_Dirty:  %8lu kB\n",
+                mss.private_dirty >> 10);
+            }
+            if ((unsigned long)(mss.swap_pss >> (10 + PSS_SHIFT)) > 0) {
+                seq_printf(m,
+                "SwapPss:        %8lu kB\n",
+                (unsigned long)(mss.swap_pss >> (10 + PSS_SHIFT)));
+            }
+            m_cache_vma(m, vma);
+            return 0;
+        }
 	show_map_vma(m, vma, is_pid);
-
 	if (vma_get_anon_name(vma)) {
 		seq_puts(m, "Name:           ");
 		seq_print_vma_name(m, vma);
@@ -678,6 +712,7 @@ static int show_smap(struct seq_file *m, void *v, int is_pid)
 		   "Anonymous:      %8lu kB\n"
 		   "AnonHugePages:  %8lu kB\n"
 		   "Swap:           %8lu kB\n"
+		   "SwapPss:        %8lu kB\n"
 		   "KernelPageSize: %8lu kB\n"
 		   "MMUPageSize:    %8lu kB\n"
 		   "Locked:         %8lu kB\n",
@@ -692,6 +727,7 @@ static int show_smap(struct seq_file *m, void *v, int is_pid)
 		   mss.anonymous >> 10,
 		   mss.anonymous_thp >> 10,
 		   mss.swap >> 10,
+		   (unsigned long)(mss.swap_pss >> (10 + PSS_SHIFT)),
 		   vma_kernel_pagesize(vma) >> 10,
 		   vma_mmu_pagesize(vma) >> 10,
 		   (vma->vm_flags & VM_LOCKED) ?
@@ -1301,7 +1337,7 @@ static ssize_t pagemap_read(struct file *file, char __user *buf,
 	if (!pm.buffer)
 		goto out_task;
 
-	mm = mm_access(task, PTRACE_MODE_READ);
+	mm = mm_access(task, PTRACE_MODE_READ_FSCREDS);
 	ret = PTR_ERR(mm);
 	if (!mm || IS_ERR(mm))
 		goto out_free;

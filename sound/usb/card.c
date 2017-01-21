@@ -657,6 +657,7 @@ static int usb_audio_probe(struct usb_interface *intf,
 	chip = snd_usb_audio_probe(interface_to_usbdev(intf), intf, id);
 	if (chip) {
 		usb_set_intfdata(intf, chip);
+		usb_enable_autosuspend(chip->dev);
 		return 0;
 	} else
 		return -EIO;
@@ -675,7 +676,7 @@ int snd_usb_autoresume(struct snd_usb_audio *chip)
 	int err = -ENODEV;
 
 	down_read(&chip->shutdown_rwsem);
-	if (chip->probing && chip->in_pm)
+	if (chip->probing || chip->in_pm)
 		err = 0;
 	else if (!chip->shutdown)
 		err = usb_autopm_get_interface(chip->pm_intf);

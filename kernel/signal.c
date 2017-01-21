@@ -909,6 +909,9 @@ static inline int wants_signal(int sig, struct task_struct *p)
 {
 	if (sigismember(&p->blocked, sig))
 		return 0;
+	//add for PF_EXITING task to be killed
+	if ((p->flags & PF_EXITING) && (current == p) && (sig == SIGKILL))
+		return 1;
 	if (p->flags & PF_EXITING)
 		return 0;
 	if (sig == SIGKILL)
@@ -1020,6 +1023,19 @@ static inline void userns_fixup_signal_uid(struct siginfo *info, struct task_str
 }
 #endif
 
+static int print_key_process_murder __read_mostly = 1;
+
+static bool is_zygote_process(struct task_struct *t)
+{
+	const struct cred *tcred = __task_cred(t);
+
+	if(!strcmp(t->comm, "main") && (tcred->uid.val == 0) && (t->parent != 0 && !strcmp(t->parent->comm,"init")))
+		return true;
+	else
+		return false;
+	return false;
+}
+
 static int __send_signal(int sig, struct siginfo *info, struct task_struct *t,
 			int group, int from_ancestor_ns)
 {
@@ -1028,12 +1044,17 @@ static int __send_signal(int sig, struct siginfo *info, struct task_struct *t,
 	int override_rlimit;
 	int ret = 0, result;
 
-	if (sig == SIGHUP)
-		pr_debug("fname=%s(%d), send %d, tname=%s(%d)\n",
-			current->comm, current->pid, sig, t->comm, t->pid);
 	assert_spin_locked(&t->sighand->siglock);
 
 	result = TRACE_SIGNAL_IGNORED;
+
+		if(print_key_process_murder) {
+			if(!strcmp(t->comm, "system_server") || is_zygote_process(t) || !strcmp(t->comm, "surfaceflinger") || !strcmp(t->comm, "servicemanager")) {
+			   printk( "process %d:%s send sig:%d to process %d:%s\n", current->pid, current->comm,sig, t->pid, t->comm);
+		    }
+		}
+
+	
 	if (!prepare_signal(sig, t,
 			from_ancestor_ns || (info == SEND_SIG_FORCED)))
 		goto ret;
@@ -1203,9 +1224,9 @@ int do_send_sig_info(int sig, struct siginfo *info, struct task_struct *p,
             }
         }
 
-	if(sig == SIGQUIT || SIGSEGV == sig) {
+	if(sig == SIGQUIT || SIGSEGV == sig)
+            if(p && p->flags & PF_FROZEN)
 		unfreezer_fork(p);
-	}
 	if (lock_task_sighand(p, &flags)) {
 		ret = send_signal(sig, info, p, group);
 		unlock_task_sighand(p, &flags);
@@ -2763,7 +2784,8 @@ int copy_siginfo_to_user(siginfo_t __user *to, const siginfo_t *from)
 		 * Other callers might not initialize the si_lsb field,
 		 * so check explicitly for the right codes here.
 		 */
-		if (from->si_code == BUS_MCEERR_AR || from->si_code == BUS_MCEERR_AO)
+		if (from->si_signo == SIGBUS &&
+		    (from->si_code == BUS_MCEERR_AR || from->si_code == BUS_MCEERR_AO))
 			err |= __put_user(from->si_addr_lsb, &to->si_addr_lsb);
 #endif
 		break;
@@ -2904,6 +2926,7 @@ SYSCALL_DEFINE4(rt_sigtimedwait, const sigset_t __user *, uthese,
 SYSCALL_DEFINE2(kill, pid_t, pid, int, sig)
 {
 	struct siginfo info;
+
 	info.si_signo = sig;
 	info.si_errno = 0;
 	info.si_code = SI_USER;
@@ -3029,7 +3052,7 @@ COMPAT_SYSCALL_DEFINE3(rt_sigqueueinfo,
 			int, sig,
 			struct compat_siginfo __user *, uinfo)
 {
-	siginfo_t info;
+	siginfo_t info = {};
 	int ret = copy_siginfo_from_user32(&info, uinfo);
 	if (unlikely(ret))
 		return ret;
@@ -3075,7 +3098,7 @@ COMPAT_SYSCALL_DEFINE4(rt_tgsigqueueinfo,
 			int, sig,
 			struct compat_siginfo __user *, uinfo)
 {
-	siginfo_t info;
+	siginfo_t info = {};
 
 	if (copy_siginfo_from_user32(&info, uinfo))
 		return -EFAULT;

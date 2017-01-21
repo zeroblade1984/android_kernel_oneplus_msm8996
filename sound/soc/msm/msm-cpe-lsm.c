@@ -28,7 +28,11 @@
 #include <sound/pcm_params.h>
 #include <sound/msm-slim-dma.h>
 
+#define SAMPLE_RATE_48KHZ 48000
+#define SAMPLE_RATE_16KHZ 16000
 #define LSM_VOICE_WAKEUP_APP_V2 2
+#define AFE_PORT_ID_1 1
+#define AFE_PORT_ID_3 3
 #define AFE_OUT_PORT_2 2
 #define LISTEN_MIN_NUM_PERIODS     2
 #define LISTEN_MAX_NUM_PERIODS     12
@@ -134,6 +138,8 @@ struct cpe_priv {
 	struct snd_soc_codec *codec;
 	struct wcd_cpe_lsm_ops lsm_ops;
 	struct wcd_cpe_afe_ops afe_ops;
+	bool afe_mad_ctl;
+	u32 input_port_id;
 };
 
 struct cpe_lsm_data {
@@ -153,6 +159,29 @@ struct cpe_lsm_data {
 	u8 *ev_det_payload;
 
 	bool cpe_prepared;
+};
+
+static int msm_cpe_afe_mad_ctl_get(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	struct cpe_priv *cpe = kcontrol->private_data;
+
+	ucontrol->value.integer.value[0] = cpe->afe_mad_ctl;
+	return 0;
+}
+
+static int msm_cpe_afe_mad_ctl_put(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	struct cpe_priv *cpe = kcontrol->private_data;
+
+	cpe->afe_mad_ctl = ucontrol->value.integer.value[0];
+	return 0;
+}
+
+static struct snd_kcontrol_new msm_cpe_kcontrols[] = {
+	SOC_SINGLE_EXT("CPE AFE MAD Enable", SND_SOC_NOPM, 0, 1, 0,
+			msm_cpe_afe_mad_ctl_get, msm_cpe_afe_mad_ctl_put),
 };
 
 /*
@@ -477,7 +506,7 @@ static int msm_cpe_lab_buf_alloc(struct snd_pcm_substream *substream,
 		pcm_buf[count].mem = pcm_buf[0].mem + (count * bufsz);
 		pcm_buf[count].phys = pcm_buf[0].phys + (count * bufsz);
 		dev_dbg(rtd->dev,
-			"%s: pcm_buf[%d].mem %p pcm_buf[%d].phys %pa\n",
+			"%s: pcm_buf[%d].mem %pK pcm_buf[%d].phys %pK\n",
 			 __func__, count,
 			(void *)pcm_buf[count].mem,
 			count, &(pcm_buf[count].phys));
@@ -704,7 +733,7 @@ static int msm_cpe_lab_thread(void *data)
 			cur_buf = &lab_d->pcm_buf[buf_count % prd_cnt];
 			next_buf = &lab_d->pcm_buf[(buf_count + 2) % prd_cnt];
 			dev_dbg(rtd->dev,
-				"%s: Cur buf.mem = %p Next Buf.mem = %p\n"
+				"%s: Cur buf.mem = %pK Next Buf.mem = %pK\n"
 				" buf count = 0x%x\n", __func__,
 				cur_buf->mem, next_buf->mem, buf_count);
 		} else {
@@ -1143,12 +1172,6 @@ static int msm_cpe_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 					__func__, rc);
 				return rc;
 			}
-			rc = lsm_ops->lsm_lab_control(cpe->core_handle,
-					session, false);
-			if (IS_ERR_VALUE(rc))
-				dev_err(rtd->dev,
-					"%s: Lab Disable Failed rc %d\n",
-				       __func__, rc);
 			/*
 			 * Buffer has to be de-allocated even if
 			 * lab_control failed.
@@ -1196,6 +1219,7 @@ static int msm_cpe_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 			dev_err(rtd->dev, "%s: No memory for sound model\n",
 				__func__);
 			kfree(session->conf_levels);
+			session->conf_levels = NULL;
 			return -ENOMEM;
 		}
 		session->snd_model_size = snd_model.data_size;
@@ -1207,6 +1231,8 @@ static int msm_cpe_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 				__func__);
 			kfree(session->conf_levels);
 			kfree(session->snd_model_data);
+			session->conf_levels = NULL;
+			session->snd_model_data = NULL;
 			return -EFAULT;
 		}
 
@@ -1218,6 +1244,8 @@ static int msm_cpe_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 			       __func__, rc);
 			kfree(session->snd_model_data);
 			kfree(session->conf_levels);
+			session->snd_model_data = NULL;
+			session->conf_levels = NULL;
 			return rc;
 		}
 
@@ -1231,6 +1259,8 @@ static int msm_cpe_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 			lsm_ops->lsm_shmem_dealloc(cpe->core_handle, session);
 			kfree(session->snd_model_data);
 			kfree(session->conf_levels);
+			session->snd_model_data = NULL;
+			session->conf_levels = NULL;
 			return rc;
 		}
 
@@ -1377,14 +1407,6 @@ static int msm_cpe_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 		dev_dbg(rtd->dev,
 			"%s: %s\n",
 			__func__, "SNDRV_LSM_START");
-		rc = lsm_ops->lsm_get_afe_out_port_id(cpe->core_handle,
-						      session);
-		if (rc != 0) {
-			dev_err(rtd->dev,
-				"%s: failed to get port id, err = %d\n",
-				__func__, rc);
-			return rc;
-		}
 		rc = lsm_ops->lsm_start(cpe->core_handle, session);
 		if (rc != 0) {
 			dev_err(rtd->dev,
@@ -1533,7 +1555,7 @@ static int msm_cpe_lsm_lab_start(struct snd_pcm_substream *substream,
 	int rc;
 
 	if (!substream || !substream->private_data) {
-		pr_err("%s: invalid substream (%p)\n",
+		pr_err("%s: invalid substream (%pK)\n",
 			__func__, substream);
 		return -EINVAL;
 	}
@@ -1623,7 +1645,7 @@ static bool msm_cpe_lsm_is_valid_stream(struct snd_pcm_substream *substream,
 	struct wcd_cpe_lsm_ops *lsm_ops;
 
 	if (!substream || !substream->private_data) {
-		pr_err("%s: invalid substream (%p)\n",
+		pr_err("%s: invalid substream (%pK)\n",
 			func, substream);
 		return false;
 	}
@@ -2064,7 +2086,7 @@ static int msm_cpe_lsm_ioctl(struct snd_pcm_substream *substream,
 	struct wcd_cpe_lsm_ops *lsm_ops;
 
 	if (!substream || !substream->private_data) {
-		pr_err("%s: invalid substream (%p)\n",
+		pr_err("%s: invalid substream (%pK)\n",
 			__func__, substream);
 		return -EINVAL;
 	}
@@ -2336,7 +2358,7 @@ static int msm_cpe_lsm_ioctl_compat(struct snd_pcm_substream *substream,
 	struct wcd_cpe_lsm_ops *lsm_ops;
 
 	if (!substream || !substream->private_data) {
-		pr_err("%s: invalid substream (%p)\n",
+		pr_err("%s: invalid substream (%pK)\n",
 			__func__, substream);
 		return -EINVAL;
 	}
@@ -2667,6 +2689,8 @@ static int msm_cpe_lsm_prepare(struct snd_pcm_substream *substream)
 	struct cpe_lsm_session *lsm_session;
 	struct cpe_lsm_lab *lab_d = &lsm_d->lab;
 	struct snd_pcm_runtime *runtime = substream->runtime;
+	struct lsm_hw_params lsm_param;
+	struct wcd_cpe_lsm_ops *lsm_ops;
 
 	if (!cpe || !cpe->core_handle) {
 		dev_err(rtd->dev,
@@ -2699,23 +2723,74 @@ static int msm_cpe_lsm_prepare(struct snd_pcm_substream *substream)
 		return 0;
 	}
 
+	lsm_ops = &cpe->lsm_ops;
 	afe_ops = &cpe->afe_ops;
 	afe_cfg = &(lsm_d->lsm_session->afe_port_cfg);
 
-	afe_cfg->port_id = 1;
-	afe_cfg->bit_width = 16;
-	afe_cfg->num_channels = 1;
-	afe_cfg->sample_rate = 16000;
+	switch (cpe->input_port_id) {
+	case AFE_PORT_ID_3:
+		afe_cfg->port_id = AFE_PORT_ID_3;
+		afe_cfg->bit_width = 16;
+		afe_cfg->num_channels = 1;
+		afe_cfg->sample_rate = SAMPLE_RATE_48KHZ;
+		rc = afe_ops->afe_port_cmd_cfg(cpe->core_handle, afe_cfg);
+		break;
+	case AFE_PORT_ID_1:
+	default:
+		afe_cfg->port_id = AFE_PORT_ID_1;
+		afe_cfg->bit_width = 16;
+		afe_cfg->num_channels = 1;
+		afe_cfg->sample_rate = SAMPLE_RATE_16KHZ;
+		rc = afe_ops->afe_set_params(cpe->core_handle,
+					     afe_cfg, cpe->afe_mad_ctl);
+		break;
+	}
 
-	rc = afe_ops->afe_set_params(cpe->core_handle,
-				     afe_cfg);
 	if (rc != 0) {
 		dev_err(rtd->dev,
-			"%s: cpe afe params failed, err = %d\n",
-			 __func__, rc);
+			"%s: cpe afe params failed for port = %d, err = %d\n",
+			 __func__, afe_cfg->port_id, rc);
+		return rc;
+	}
+	lsm_param.sample_rate = afe_cfg->sample_rate;
+	lsm_param.num_chs = afe_cfg->num_channels;
+	lsm_param.bit_width = afe_cfg->bit_width;
+	rc = lsm_ops->lsm_set_media_fmt_params(cpe->core_handle, lsm_session,
+					       &lsm_param);
+	if (rc)
+		dev_dbg(rtd->dev,
+			"%s: failed to set lsm media fmt params, err = %d\n",
+			__func__, rc);
+
+	/* Send connect to port (input) */
+	rc = lsm_ops->lsm_set_port(cpe->core_handle, lsm_session,
+				   &cpe->input_port_id);
+	if (rc) {
+		dev_err(rtd->dev,
+			"%s: Failed to set connect input port, err=%d\n",
+			__func__, rc);
 		return rc;
 	}
 
+	if (cpe->input_port_id != 3) {
+		rc = lsm_ops->lsm_get_afe_out_port_id(cpe->core_handle,
+						      lsm_session);
+		if (rc != 0) {
+			dev_err(rtd->dev,
+				"%s: failed to get port id, err = %d\n",
+				__func__, rc);
+			return rc;
+		}
+		/* Send connect to port (output) */
+		rc = lsm_ops->lsm_set_port(cpe->core_handle, lsm_session,
+					   &lsm_session->afe_out_port_id);
+		if (rc) {
+			dev_err(rtd->dev,
+				"%s: Failed to set connect output port, err=%d\n",
+				__func__, rc);
+			return rc;
+		}
+	}
 	rc = msm_cpe_afe_port_cntl(substream,
 				   cpe->core_handle,
 				   afe_ops, afe_cfg,
@@ -2933,7 +3008,7 @@ static int msm_cpe_lsm_copy(struct snd_pcm_substream *substream, int a,
 	if (lab_d->buf_idx >= (lsm_d->hw_params.period_count))
 		lab_d->buf_idx = 0;
 	pcm_buf = (lab_d->pcm_buf[lab_d->buf_idx].mem);
-	pr_debug("%s: Buf IDX = 0x%x pcm_buf %p\n",
+	pr_debug("%s: Buf IDX = 0x%x pcm_buf %pK\n",
 		 __func__,  lab_d->buf_idx, pcm_buf);
 	if (pcm_buf) {
 		if (copy_to_user(buf, pcm_buf, fbytes)) {
@@ -2963,7 +3038,11 @@ static int msm_asoc_cpe_lsm_probe(struct snd_soc_platform *platform)
 	struct snd_soc_pcm_runtime *rtd;
 	struct snd_soc_codec *codec;
 	struct cpe_priv *cpe_priv;
+	const struct snd_kcontrol_new *kcontrol;
 	bool found_runtime = false;
+	const char *cpe_dev_id = "qcom,msm-cpe-lsm-id";
+	u32 port_id = 0;
+	int ret = 0;
 	int i;
 
 	if (!platform || !platform->component.card) {
@@ -2993,6 +3072,14 @@ static int msm_asoc_cpe_lsm_probe(struct snd_soc_platform *platform)
 		return -EINVAL;
 	}
 
+	ret = of_property_read_u32(platform->dev->of_node, cpe_dev_id,
+				  &port_id);
+	if (ret) {
+		dev_dbg(platform->dev,
+			"%s: missing 0x%x in dt node\n", __func__, port_id);
+		port_id = 1;
+	}
+
 	codec = rtd->codec;
 
 	cpe_priv = kzalloc(sizeof(struct cpe_priv),
@@ -3005,10 +3092,13 @@ static int msm_asoc_cpe_lsm_probe(struct snd_soc_platform *platform)
 	}
 
 	cpe_priv->codec = codec;
+	cpe_priv->input_port_id = port_id;
 	wcd_cpe_get_lsm_ops(&cpe_priv->lsm_ops);
 	wcd_cpe_get_afe_ops(&cpe_priv->afe_ops);
 
 	snd_soc_platform_set_drvdata(platform, cpe_priv);
+	kcontrol = &msm_cpe_kcontrols[0];
+	snd_ctl_add(card->snd_card, snd_ctl_new1(kcontrol, cpe_priv));
 	return 0;
 }
 

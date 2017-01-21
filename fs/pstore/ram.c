@@ -46,6 +46,14 @@ module_param(record_size, ulong, 0400);
 MODULE_PARM_DESC(record_size,
 		"size of each dump done on oops/panic");
 
+#define DEVICE_INFO_SIZE 2048
+char device_info[DEVICE_INFO_SIZE];
+extern char oem_serialno[16];
+extern char oem_hw_version[3];
+extern char oem_rf_version[3];
+extern char oem_ddr_manufacture_info[16];
+extern char oem_pcba_number[30];
+
 static ulong ramoops_console_size = 256*1024UL;
 phys_addr_t ram_console_address_start;
 ssize_t ram_console_address_size;
@@ -548,13 +556,23 @@ static int ramoops_probe(struct platform_device *pdev)
 
 	ram_console_address_start = cxt->cprz->paddr;
 	ram_console_address_size  = cxt->console_size;
+	sprintf(device_info,
+		"hardware version: %s\r\n"
+		"rf version: %s\r\n"
+		"ddr manufacturer: %s\r\n"
+		"pcba number: %s\r\n"
+		"serial number: %s\r\n",
+                oem_hw_version, oem_rf_version, oem_ddr_manufacture_info, oem_pcba_number, oem_serialno);
+
 	boot_shared_imem_cookie_ptr = ioremap(SHARED_IMEM_BOOT_BASE, sizeof(struct boot_shared_imem_cookie_type));
 	if(!boot_shared_imem_cookie_ptr)
 		pr_err("unable to map imem DLOAD mode offset for OEM usages\n");
 	else
 	{
 		__raw_writel(ram_console_address_start, &(boot_shared_imem_cookie_ptr->kernel_log_addr));
-                __raw_writel(ram_console_address_size, &(boot_shared_imem_cookie_ptr->kernel_log_size));
+		__raw_writel(ram_console_address_size, &(boot_shared_imem_cookie_ptr->kernel_log_size));
+		__raw_writel(virt_to_phys(device_info), &(boot_shared_imem_cookie_ptr->device_info_addr));
+		__raw_writel(strlen(device_info), &(boot_shared_imem_cookie_ptr->device_info_size));
 	}
 
 	err = ramoops_init_prz(dev, cxt, &cxt->fprz, &paddr, cxt->ftrace_size,

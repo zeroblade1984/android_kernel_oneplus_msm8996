@@ -16,15 +16,6 @@ config MSM_BUS_SCALING
 		for the active devices needs without keeping the clocks at max
 		frequency when a slower speed is sufficient.
 
-config MSM_BUSPM_DEV
-	tristate "MSM Bus Performance Monitor Kernel Module"
-	depends on MSM_BUS_SCALING
-	help
-	  This kernel module is used to mmap() hardware registers for the
-	  performance monitors, counters, etc. The module can also be used to
-	  allocate physical memory which is used by bus performance hardware to
-	  dump performance data
-
 config BUS_TOPOLOGY_ADHOC
 	bool "ad-hoc bus scaling topology"
 	help
@@ -183,6 +174,7 @@ config RMNET_IPA
 	  It supports Embedded data transfer from A7 to Q6. Configures IPA HW
 	  for RmNet Data Driver and also exchange of QMI messages between
 	  A7 and Q6 IPA-driver.
+
 config RMNET_IPA3
 	tristate "IPA3 RMNET WWAN Network Device"
 	depends on IPA3 && MSM_QMI_INTERFACE
@@ -191,6 +183,26 @@ config RMNET_IPA3
 	  It supports Embedded data transfer from A7 to Q6. Configures IPA HW
 	  for RmNet Data Driver and also exchange of QMI messages between
 	  A7 and Q6 IPA-driver.
+
+config IPA_UT
+	tristate "IPA Unit-Test Framework and Test Suites"
+	depends on IPA3 && DEBUG_FS
+	help
+	  This Module implements IPA in-kernel test framework.
+	  The framework supports defining and running tests, grouped
+	  into suites according to the sub-unit of the IPA being tested.
+	  The user interface to run and control the tests is debugfs file
+	  system.
+
+config SSM
+	tristate "QTI Secure Service Module"
+	depends on QSEECOM
+	depends on MSM_SMD
+	help
+	  Provides an interface for OEM driver to communicate with Trustzone
+	  and modem for key exchange and mode change.
+	  This driver uses Secure Channel Manager interface for trustzone
+	  communication and communicates with modem over SMD channel.
 
 config MSM_MHI
 	tristate "Modem Host Interface Driver"
@@ -287,6 +299,15 @@ config MSM_11AD
 
 	  If you choose to build it as a module, it will be called
 	  msm_11ad_proxy.
+
+config BW_MONITOR
+	bool "Bandwidth monitor driver"
+        depends on BUS_TOPOLOGY_ADHOC && THERMAL
+	help
+	 Enable this module if any bandwidth of a bus needs to be
+	 monitored and limited by thermal core framework. It does
+	 it by registering the bus bandwidth as a sensor in
+	 thermal core framework.
 
 source "drivers/platform/msm/spmi/Kconfig"
 

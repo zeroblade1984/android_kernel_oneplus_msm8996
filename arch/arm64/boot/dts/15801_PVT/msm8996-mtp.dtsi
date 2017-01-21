@@ -12,7 +12,7 @@
 
 #include "msm8996-pinctrl.dtsi"
 #include "msm8996-camera-sensor-mtp.dtsi"
-#include "dsi-panel-samsung_s6e3fa3_1080p_cmd.dtsi"  //guozhiming modify for lcd 2015-10-15
+#include "dsi-panel-samsung_s6e3fa3_1080p_cmd.dtsi"
 
 
 / {
@@ -34,7 +34,6 @@
 };
 
 &sdcc1_ice {
-        /*zuoyonghua@connectivity 2015 12 07 hw11(T0) we used ufs , don't used emmc ,so disable it*/
         status = "disabled";
 };
 
@@ -93,7 +92,6 @@
 	qcom,bus-speed-mode = "SDR12", "SDR25", "SDR50", "DDR50", "SDR104";
 
 	cd-gpios = <&tlmm 95 0x1>;
-	/*lyb@bsp 11/17/15: 15801 L13/L21 don't used for MicroSD*/
 	status = "disable";
 };
 
@@ -342,27 +340,6 @@
 #include "msm8996-mdss-panels.dtsi"
 
 
-/*  //guozhiming modify for lcd 2015-10-15
-&mdss_mdp {
-	qcom,mdss-pref-prim-intf = "dsi";
-};
-
-&mdss_dsi {
-	hw-config = "split_dsi";
-};
-
-&mdss_dsi0 {
-	qcom,dsi-pref-prim-pan = <&dsi_dual_sharp_video>;
-	pinctrl-names = "mdss_default", "mdss_sleep";
-	pinctrl-0 = <&mdss_dsi_active &mdss_te_active>;
-	pinctrl-1 = <&mdss_dsi_suspend &mdss_te_suspend>;
-	qcom,platform-te-gpio = <&tlmm 10 0>;
-	qcom,platform-reset-gpio = <&tlmm 8 0>;
-	qcom,platform-bklight-en-gpio = <&pm8994_gpios 14 0>;
-};
-
-*/
-//guozhiming modify for lcd 2015-10-15
 &mdss_mdp {
 	qcom,mdss-pref-prim-intf = "dsi";
 };
@@ -399,11 +376,11 @@
 };
 
 
-
 /{
 	mtp_batterydata: qcom,battery-data {
 		qcom,batt-id-range-pct = <15>;
-		#include "batterydata-itech-3000mah.dtsi"
+		#include "batterydata-op-3000mah.dtsi"
+		#include "batterydata-op-3400mah.dtsi"
 	};
 };
 
@@ -465,6 +442,8 @@
 		status = "ok";
 		compatible = "ti,bq27541-battery";
 		reg = <0x55>;
+		op,low-bat-voltage-uv=<3350000>;
+		op,low-bat-capacity=<10>;
 	};
 	oneplus_fastcg@26{
 		status = "ok";
@@ -483,15 +462,14 @@
 
 &pmi8994_fg {
 	qcom,battery-data = <&mtp_batterydata>;
-	//qcom,ext-sense-type;	/*Yangfangbiao removed to use internal sense*/
+	//qcom,ext-sense-type;
 };
 
 &usb_otg_switch {
-	status = "disabled";//changhua change from okay to disabled
+	status = "disabled";
 };
 
 &pm8994_mpps {
-
 	mpp@a300 { /* MPP 4 */
 		/* HDMI_5v_vreg regulator enable */
 		qcom,mode = <1>;		/* Digital output */
@@ -590,32 +568,6 @@
 };
 
 &soc {
-/*
-	i2c@75ba000 {
-		synaptics@20 {
-			compatible = "synaptics,dsx";
-			reg = <0x20>;
-			interrupt-parent = <&tlmm>;
-			interrupts = <125 0x2008>;
-			vdd-supply = <&pm8994_l14>;
-			avdd-supply = <&pm8994_l22>;
-			pinctrl-names = "pmx_ts_active", "pmx_ts_suspend";
-			pinctrl-0 = <&ts_active>;
-			pinctrl-1 = <&ts_suspend>;
-			synaptics,display-coords = <0 0 1079 1918>;
-			synaptics,panel-coords = <0 0 1079 1918>;
-			synaptics,reset-gpio = <&tlmm 89 0x00>;
-			synaptics,irq-gpio = <&tlmm 125 0x2008>;
-			synaptics,disable-gpios;
-			synaptics,fw-name = "PR1702898-s3528t_00350002.img";
-			// Underlying clocks used by secure touch
-			clock-names = "iface_clk", "core_clk";
-			clocks = <&clock_gcc clk_gcc_blsp2_ahb_clk>,
-				 <&clock_gcc clk_gcc_blsp2_qup6_i2c_apps_clk>;
-		};
-	};
-*/
-/* lifeng@BSP 2015/12/1 for synaptics tp @20 */
 	i2c@75ba000 {
 		synaptics-rmi-ts@20 {
 			compatible = "synaptics,s3320";
@@ -671,7 +623,6 @@
 		};
 
 	};
-
 
 	tri_state_key {
 		compatible = "oneplus,tri-state-key";
@@ -975,6 +926,7 @@
 	};
 };
 
+
 &i2c_8 { /* BLSP2 QUP2 */
 	synaptics-rmi-ts@20 {
 		compatible = "HWK,synaptics,s1302";
@@ -983,7 +935,7 @@
 		interrupts = <132 0x2008>;
 		synaptics,irq-gpio = <&tlmm 132 0x2008>;
 		synaptics,reset-gpio = <&tlmm 76 0x00>;
-		//synaptics,en3v_gpio = <&tlmm 14 0x00>;//changhua mv to sbl cause fingerprint use the same LDO
+		//synaptics,en3v_gpio = <&tlmm 14 0x00>;
 		vdd_2v8-supply = <&pm8994_l13>;
 		vcc_i2c_1v8-supply = <&pm8994_s4>;
 		oem,cover_reject;//when esd test cover the phone on the panel don't report keys;

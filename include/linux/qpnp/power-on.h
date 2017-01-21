@@ -58,7 +58,7 @@ enum pon_restart_reason {
 	PON_RESTART_REASON_DMVERITY_CORRUPTED	= 0x04,
 	PON_RESTART_REASON_DMVERITY_ENFORCE	= 0x05,
 	PON_RESTART_REASON_KEYS_CLEAR		= 0x06,
-	PON_RESTART_REASON_AGING		= 0x07, //shankai add for aging mode
+	PON_RESTART_REASON_AGING		= 0x07,
 
 	PON_RESTART_REASON_REBOOT       = 0x10,
 	PON_RESTART_REASON_FACTORY      = 0x11,
@@ -72,9 +72,7 @@ enum pon_restart_reason {
 
 #define FASTBOOT_MODE          0x77665500
 #define RECOVERY_MODE          0x77665502
-//#define AGING_MODE          0x77665510   //shankai add for aging mode
 #define ALARM_BOOT             0x77665503
-//#define DM_VERITY_LOGGING    0x77665508
 //#define DM_VERITY_ENFORCING  0x77665509
 //#define DM_VERITY_KEYSCLEAR  0x7766550A
 #define FACTORY_MODE           0x77665504

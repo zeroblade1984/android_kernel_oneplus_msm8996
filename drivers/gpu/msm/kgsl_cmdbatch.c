@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -80,7 +80,7 @@ void kgsl_dump_syncpoints(struct kgsl_device *device,
 		}
 		case KGSL_CMD_SYNCPOINT_TYPE_FENCE:
 			if (event->handle)
-				dev_err(device->dev, "  fence: [%p] %s\n",
+				dev_err(device->dev, "  fence: [%pK] %s\n",
 					event->handle->fence,
 					event->handle->name);
 			else
@@ -539,18 +539,9 @@ static void add_profiling_buffer(struct kgsl_device *device,
 int kgsl_cmdbatch_add_ibdesc(struct kgsl_device *device,
 	struct kgsl_cmdbatch *cmdbatch, struct kgsl_ibdesc *ibdesc)
 {
+	uint64_t gpuaddr = (uint64_t) ibdesc->gpuaddr;
+	uint64_t size = (uint64_t) ibdesc->sizedwords << 2;
 	struct kgsl_memobj_node *mem;
-
-	mem = kmem_cache_alloc(memobjs_cache, GFP_KERNEL);
-	if (mem == NULL)
-		return -ENOMEM;
-
-	mem->gpuaddr = (uint64_t) ibdesc->gpuaddr;
-	mem->size = (uint64_t) ibdesc->sizedwords << 2;
-	mem->priv = 0;
-	mem->id = 0;
-	mem->offset = 0;
-	mem->flags = 0;
 
 	/* sanitize the ibdesc ctrl flags */
 	ibdesc->ctrl &= KGSL_IBDESC_MEMLIST | KGSL_IBDESC_PROFILING_BUFFER;
@@ -558,23 +549,31 @@ int kgsl_cmdbatch_add_ibdesc(struct kgsl_device *device,
 	if (cmdbatch->flags & KGSL_CMDBATCH_MEMLIST &&
 			ibdesc->ctrl & KGSL_IBDESC_MEMLIST) {
 		if (ibdesc->ctrl & KGSL_IBDESC_PROFILING_BUFFER) {
-			add_profiling_buffer(device, cmdbatch, mem->gpuaddr,
-					mem->size, 0, 0);
+			add_profiling_buffer(device, cmdbatch,
+					gpuaddr, size, 0, 0);
 			return 0;
 		}
+	}
 
+	if (cmdbatch->flags & (KGSL_CMDBATCH_SYNC | KGSL_CMDBATCH_MARKER))
+		return 0;
+
+	mem = kmem_cache_alloc(memobjs_cache, GFP_KERNEL);
+	if (mem == NULL)
+		return -ENOMEM;
+
+	mem->gpuaddr = gpuaddr;
+	mem->size = size;
+	mem->priv = 0;
+	mem->id = 0;
+	mem->offset = 0;
+	mem->flags = 0;
+
+	if (cmdbatch->flags & KGSL_CMDBATCH_MEMLIST &&
+			ibdesc->ctrl & KGSL_IBDESC_MEMLIST) {
 		/* add to the memlist */
 		list_add_tail(&mem->node, &cmdbatch->memlist);
-
-		if (ibdesc->ctrl & KGSL_IBDESC_PROFILING_BUFFER)
-			add_profiling_buffer(device, cmdbatch, mem->gpuaddr,
-				mem->size, 0, 0);
 	} else {
-		/* Ignore if SYNC or MARKER is specified */
-		if (cmdbatch->flags &
-			(KGSL_CMDBATCH_SYNC | KGSL_CMDBATCH_MARKER))
-			return 0;
-
 		/* set the preamble flag if directed to */
 		if (cmdbatch->context->flags & KGSL_CONTEXT_PREAMBLE &&
 			list_empty(&cmdbatch->cmdlist))
@@ -625,7 +624,8 @@ struct kgsl_cmdbatch *kgsl_cmdbatch_create(struct kgsl_device *device,
 				| KGSL_CMDBATCH_SYNC
 				| KGSL_CMDBATCH_PWR_CONSTRAINT
 				| KGSL_CMDBATCH_MEMLIST
-				| KGSL_CMDBATCH_PROFILING);
+				| KGSL_CMDBATCH_PROFILING
+				| KGSL_CMDBATCH_PROFILING_KTIME);
 
 	/* Add a timer to help debug sync deadlocks */
 	setup_timer(&cmdbatch->timer, _kgsl_cmdbatch_timer,

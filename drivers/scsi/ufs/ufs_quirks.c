@@ -13,8 +13,8 @@
 
 #include "ufshcd.h"
 #include "ufs_quirks.h"
-#include <linux/project_info.h>
 
+#include <linux/project_info.h>
 char oem_ufs_manufacture_info[16];
 char oem_ufs_fw_version[3];
 
@@ -185,7 +185,6 @@ void ufs_advertise_fixup_device(struct ufs_hba *hba)
 		dev_err(hba->dev, "%s: Failed getting device info\n", __func__);
 		goto out;
 	}
-
 
 	for (f = ufs_fixups; f->quirk; f++) {
 		/* if same wmanufacturerid */

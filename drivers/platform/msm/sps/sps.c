@@ -289,7 +289,8 @@ static ssize_t sps_set_bam_addr(struct file *file, const char __user *buf,
 	} else {
 		vir_addr = &bam->base;
 		num_pipes = bam->props.num_pipes;
-		bam->ipc_loglevel = log_level_sel;
+		if (log_level_sel <= SPS_IPC_MAX_LOGLEVEL)
+			bam->ipc_loglevel = log_level_sel;
 	}
 
 	switch (reg_dump_option) {
@@ -500,7 +501,7 @@ static void sps_debugfs_init(void)
 	debugfs_buf_size = 0;
 	debugfs_buf_used = 0;
 	wraparound = false;
-	log_level_sel = 0;
+	log_level_sel = SPS_IPC_MAX_LOGLEVEL + 1;
 
 	dent = debugfs_create_dir("sps", 0);
 	if (IS_ERR(dent)) {
@@ -2207,6 +2208,8 @@ int sps_register_bam_device(const struct sps_bam_props *bam_props,
 
 	if (bam_props->ipc_loglevel)
 		bam->ipc_loglevel = bam_props->ipc_loglevel;
+	else
+		bam->ipc_loglevel = SPS_IPC_DEFAULT_LOGLEVEL;
 
 	ok = sps_bam_device_init(bam);
 	mutex_unlock(&bam->lock);
@@ -2280,12 +2283,8 @@ int sps_deregister_bam_device(unsigned long dev_handle)
 
 	if (bam->props.options & SPS_BAM_HOLD_MEM) {
 		for (n = 0; n < BAM_MAX_PIPES; n++)
-			if (bam->desc_cache_pointers[n] != NULL){
+			if (bam->desc_cache_pointers[n] != NULL)
 				kfree(bam->desc_cache_pointers[n]);
-				/*Fix RAIN-1298, modified by liwei@BSP. Sometimes desc_cache will point desc_cache_pointers. 
-				If we free desc_cache_pointer , we should set desc_cache_pointer value is NULL, it will avoid wild pointer*/
-				bam->desc_cache_pointers[n] = NULL;
-			}
 	}
 
 	/* If this BAM is attached to a BAM-DMA, init the BAM-DMA device */

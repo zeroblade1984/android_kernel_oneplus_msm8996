@@ -51,7 +51,6 @@ struct msm_mi2s_pdata {
 	u16 rx_sd_lines;
 	u16 tx_sd_lines;
 	u16 intf_id;
-
     u16 slave;
     u32 ext_mclk_rate;
 };

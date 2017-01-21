@@ -79,29 +79,39 @@ static int set_gpio_by_pinctrl(void)
 #endif
 static void switch_dev_work(struct work_struct *work)
 {
+
+	int key1,key2,key3;
 	//pr_err("%s  gpio_get_value(%d)=%d\n",__func__,switch_data->key1_gpio,gpio_get_value(switch_data->key1_gpio));
 	//pr_err("%s  gpio_get_value(%d)=%d\n",__func__,switch_data->key2_gpio,gpio_get_value(switch_data->key2_gpio));
 	//pr_err("%s  gpio_get_value(%d)=%d\n",__func__,switch_data->key3_gpio,gpio_get_value(switch_data->key3_gpio));
 
       mutex_lock(&sem);
+	key1=gpio_get_value(switch_data->key1_gpio);
+	key2=gpio_get_value(switch_data->key2_gpio);
+	key3=gpio_get_value(switch_data->key3_gpio);
 
+	if(((key1==0)&&(key2==1)&&(key3==1))||((key1==1)&&(key2==0)&&(key3==1))||((key1==1)&&(key2==1)&&(key3==0)))
+	{
 		//gpio_set_value(switch_data->key3_gpio,0);
 		//pr_err("%s  gpio_22get_value(%d)=%d\n",__func__,switch_data->key3_gpio,gpio_get_value(switch_data->key3_gpio));
-		if(!gpio_get_value(switch_data->key2_gpio))
+		if(!key2)
 		{
 		    switch_set_state(&switch_data->sdev, MODE_DO_NOT_DISTURB);
 		}
 
-		if(!gpio_get_value(switch_data->key3_gpio))
+		if(!key3)
 		{
 		    switch_set_state(&switch_data->sdev, MODE_NORMAL);
+
 		}
 
-		if(!gpio_get_value(switch_data->key1_gpio))
+		if(!key1)
 		{
 		    switch_set_state(&switch_data->sdev, MODE_MUTE);
 		}
+
         printk(KERN_ERR "%s ,tristatekey set to state(%d) \n",__func__,switch_data->sdev.state);
+	}
 	mutex_unlock(&sem);
 }
 irqreturn_t switch_dev_interrupt(int irq, void *_dev)
@@ -426,8 +436,8 @@ static int tristate_dev_probe(struct platform_device *pdev)
             }
 
        }
-       
-       
+
+
         INIT_WORK(&switch_data->work, switch_dev_work);
 
         init_timer(&switch_data->s_timer);

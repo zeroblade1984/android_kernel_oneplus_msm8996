@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,6 +23,7 @@
 #include <linux/time.h>
 #include <linux/kmemleak.h>
 #include <linux/wakelock.h>
+#include <linux/mutex.h>
 #include <sound/apr_audio.h>
 #include <linux/qdsp6v2/usf.h>
 #include "q6usm.h"
@@ -59,6 +60,9 @@
 /* max_buf_size = (port_size(65535*2) * port_num(8) * group_size(3) */
 #define USF_MAX_BUF_SIZE 3145680
 #define USF_MAX_BUF_NUM  32
+
+/* max size for buffer set from user space */
+#define USF_MAX_USER_BUF_SIZE 100000
 
 /* Place for opreation result, received from QDSP6 */
 #define APR_RESULT_IND 1
@@ -132,6 +136,8 @@ struct usf_type {
 	uint16_t conflicting_event_filters;
 	/* The requested buttons bitmap */
 	uint16_t req_buttons_bitmap;
+	/* Mutex for exclusive operations (all public APIs) */
+	struct mutex mutex;
 };
 
 struct usf_input_dev_type {
@@ -572,11 +578,6 @@ static int config_xx(struct usf_xx_type *usf_xx, struct us_xx_info_type *config)
 	       (void *)config->port_id,
 	       min_map_size);
 
-	if (rc) {
-		pr_err("%s: ports offsets copy failure\n", __func__);
-		return -EINVAL;
-	}
-
 	usf_xx->encdec_cfg.format_id = config->stream_format;
 	usf_xx->encdec_cfg.params_size = config->params_data_size;
 	usf_xx->user_upd_info_na = 1; /* it's used in US_GET_TX_UPDATE */
@@ -936,6 +937,12 @@ static int usf_set_us_detection(struct usf_type *usf, unsigned long arg)
 		return -EFAULT;
 	}
 
+	if (detect_info.params_data_size > USF_MAX_USER_BUF_SIZE) {
+		pr_err("%s: user buffer size exceeds maximum\n",
+			__func__);
+		return -EFAULT;
+	}
+
 	rc = __usf_set_us_detection(usf, &detect_info);
 	if (rc < 0) {
 		pr_err("%s: set us detection failed; rc=%d\n",
@@ -1033,6 +1040,12 @@ static int usf_set_tx_info(struct usf_type *usf, unsigned long arg)
 		return -EFAULT;
 	}
 
+	if (config_tx.us_xx_info.params_data_size > USF_MAX_USER_BUF_SIZE) {
+		pr_err("%s: user buffer size exceeds maximum\n",
+			__func__);
+		return -EFAULT;
+	}
+
 	return __usf_set_tx_info(usf, &config_tx);
 } /* usf_set_tx_info */
 
@@ -1096,6 +1109,12 @@ static int usf_set_rx_info(struct usf_type *usf, unsigned long arg)
 	if (rc) {
 		pr_err("%s: copy config_rx from user; rc=%d\n",
 			__func__, rc);
+		return -EFAULT;
+	}
+
+	if (config_rx.us_xx_info.params_data_size > USF_MAX_USER_BUF_SIZE) {
+		pr_err("%s: user buffer size exceeds maximum\n",
+			__func__);
 		return -EFAULT;
 	}
 
@@ -1387,8 +1406,21 @@ static int __usf_set_stream_param(struct usf_xx_type *usf_xx,
 				int dir)
 {
 	struct us_client *usc = usf_xx->usc;
-	struct us_port_data *port = &usc->port[dir];
+	struct us_port_data *port;
 	int rc = 0;
+
+	if (usc == NULL) {
+		pr_err("%s: usc is null\n",
+			__func__);
+		return -EFAULT;
+	}
+
+	port = &usc->port[dir];
+	if (port == NULL) {
+		pr_err("%s: port is null\n",
+			__func__);
+		return -EFAULT;
+	}
 
 	if (port->param_buf == NULL) {
 		pr_err("%s: parameter buffer is null\n",
@@ -1453,8 +1485,16 @@ static int __usf_get_stream_param(struct usf_xx_type *usf_xx,
 				int dir)
 {
 	struct us_client *usc = usf_xx->usc;
-	struct us_port_data *port = &usc->port[dir];
+	struct us_port_data *port;
 	int rc = 0;
+
+	if (usc == NULL) {
+		pr_err("%s: us_client is null\n",
+			__func__);
+		return -EFAULT;
+	}
+
+	port = &usc->port[dir];
 
 	if (port->param_buf == NULL) {
 		pr_err("%s: parameter buffer is null\n",
@@ -1514,10 +1554,12 @@ static int usf_get_stream_param(struct usf_xx_type *usf_xx,
 	return __usf_get_stream_param(usf_xx, &get_stream_param, dir);
 } /* usf_get_stream_param */
 
-static long usf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+static long __usf_ioctl(struct usf_type *usf,
+		unsigned int cmd,
+		unsigned long arg)
 {
+
 	int rc = 0;
-	struct usf_type *usf = file->private_data;
 	struct usf_xx_type *usf_xx = NULL;
 
 	switch (cmd) {
@@ -1678,6 +1720,18 @@ static long usf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	    ((cmd == US_SET_TX_INFO) ||
 	     (cmd == US_SET_RX_INFO)))
 		release_xx(usf_xx);
+
+	return rc;
+} /* __usf_ioctl */
+
+static long usf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	struct usf_type *usf = file->private_data;
+	int rc = 0;
+
+	mutex_lock(&usf->mutex);
+	rc = __usf_ioctl(usf, cmd, arg);
+	mutex_unlock(&usf->mutex);
 
 	return rc;
 } /* usf_ioctl */
@@ -1994,6 +2048,12 @@ static int usf_set_us_detection32(struct usf_type *usf, unsigned long arg)
 		return -EFAULT;
 	}
 
+	if (detect_info32.params_data_size > USF_MAX_USER_BUF_SIZE) {
+		pr_err("%s: user buffer size exceeds maximum\n",
+			__func__);
+		return -EFAULT;
+	}
+
 	memset(&detect_info, 0, sizeof(detect_info));
 	detect_info.us_detector = detect_info32.us_detector;
 	detect_info.us_detect_mode = detect_info32.us_detect_mode;
@@ -2117,12 +2177,11 @@ static int usf_get_stream_param32(struct usf_xx_type *usf_xx,
 	return __usf_get_stream_param(usf_xx, &get_stream_param, dir);
 } /* usf_get_stream_param32 */
 
-static long usf_compat_ioctl(struct file *file,
+static long __usf_compat_ioctl(struct usf_type *usf,
 			     unsigned int cmd,
 			     unsigned long arg)
 {
 	int rc = 0;
-	struct usf_type *usf = file->private_data;
 	struct usf_xx_type *usf_xx = NULL;
 
 	switch (cmd) {
@@ -2130,7 +2189,7 @@ static long usf_compat_ioctl(struct file *file,
 	case US_START_RX:
 	case US_STOP_TX:
 	case US_STOP_RX: {
-		return usf_ioctl(file, cmd, arg);
+		return __usf_ioctl(usf, cmd, arg);
 	}
 
 	case US_SET_TX_INFO32: {
@@ -2239,6 +2298,20 @@ static long usf_compat_ioctl(struct file *file,
 		release_xx(usf_xx);
 
 	return rc;
+} /* __usf_compat_ioctl */
+
+static long usf_compat_ioctl(struct file *file,
+			     unsigned int cmd,
+			     unsigned long arg)
+{
+	struct usf_type *usf = file->private_data;
+	int rc = 0;
+
+	mutex_lock(&usf->mutex);
+	rc = __usf_compat_ioctl(usf, cmd, arg);
+	mutex_unlock(&usf->mutex);
+
+	return rc;
 } /* usf_compat_ioctl */
 #endif /* CONFIG_COMPAT */
 
@@ -2247,13 +2320,17 @@ static int usf_mmap(struct file *file, struct vm_area_struct *vms)
 	struct usf_type *usf = file->private_data;
 	int dir = OUT;
 	struct usf_xx_type *usf_xx = &usf->usf_tx;
+	int rc = 0;
 
+	mutex_lock(&usf->mutex);
 	if (vms->vm_flags & USF_VM_WRITE) { /* RX buf mapping */
 		dir = IN;
 		usf_xx = &usf->usf_rx;
 	}
+	rc = q6usm_get_virtual_address(dir, usf_xx->usc, vms);
+	mutex_unlock(&usf->mutex);
 
-	return q6usm_get_virtual_address(dir, usf_xx->usc, vms);
+	return rc;
 }
 
 static uint16_t add_opened_dev(int minor)
@@ -2306,6 +2383,8 @@ static int usf_open(struct inode *inode, struct file *file)
 	usf->usf_tx.us_detect_type = USF_US_DETECT_UNDEF;
 	usf->usf_rx.us_detect_type = USF_US_DETECT_UNDEF;
 
+	mutex_init(&usf->mutex);
+
 	pr_debug("%s:usf in open\n", __func__);
 	return 0;
 }
@@ -2316,6 +2395,7 @@ static int usf_release(struct inode *inode, struct file *file)
 
 	pr_debug("%s: release entry\n", __func__);
 
+	mutex_lock(&usf->mutex);
 	usf_release_input(usf);
 
 	usf_disable(&usf->usf_tx);
@@ -2324,6 +2404,8 @@ static int usf_release(struct inode *inode, struct file *file)
 	s_opened_devs[usf->dev_ind] = 0;
 
 	wakeup_source_trash(&usf_wakeup_source);
+	mutex_unlock(&usf->mutex);
+	mutex_destroy(&usf->mutex);
 	kfree(usf);
 	pr_debug("%s: release exit\n", __func__);
 	return 0;

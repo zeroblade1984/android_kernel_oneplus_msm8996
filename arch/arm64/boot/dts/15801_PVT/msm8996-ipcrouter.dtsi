@@ -45,4 +45,14 @@
 		qcom,xprt-version = <1>;
 		qcom,fragmented-data;
 	};
+
+	qcom,ipc_router_external_modem_xprt2 {
+		compatible = "qcom,ipc_router_mhi_xprt";
+		qcom,ch-name = "IPCRTR";
+		qcom,out-chan-id = <34>;
+		qcom,in-chan-id = <35>;
+		qcom,xprt-remote = "external-modem";
+		qcom,xprt-linkid = <1>;
+		qcom,xprt-version = <3>;
+	};
 };

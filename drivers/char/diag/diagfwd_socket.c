@@ -234,13 +234,6 @@ static void socket_data_ready(struct sock *sk_ptr)
 	spin_unlock_irqrestore(&info->lock, flags);
 	diag_ws_on_notify();
 
-	/*
-	 * Initialize read buffers for the servers. The servers must read data
-	 * first to get the address of its clients.
-	 */
-	if (!atomic_read(&info->opened) && info->port_type == PORT_TYPE_SERVER)
-		diagfwd_buffers_init(info->fwd_ctxt);
-
 	queue_work(info->wq, &(info->read_work));
 	wake_up_interruptible(&info->read_wait_q);
 	return;
@@ -249,7 +242,7 @@ static void socket_data_ready(struct sock *sk_ptr)
 static void cntl_socket_data_ready(struct sock *sk_ptr)
 {
 	if (!sk_ptr || !cntl_socket) {
-		pr_err_ratelimited("diag: In %s, invalid ptrs. sk_ptr: %p cntl_socket: %p\n",
+		pr_err_ratelimited("diag: In %s, invalid ptrs. sk_ptr: %pK cntl_socket: %pK\n",
 				   __func__, sk_ptr, cntl_socket);
 		return;
 	}
@@ -628,6 +621,9 @@ static void socket_read_work_fn(struct work_struct *work)
 
 	if (!info)
 		return;
+
+	if (!atomic_read(&info->opened) && info->port_type == PORT_TYPE_SERVER)
+		diagfwd_buffers_init(info->fwd_ctxt);
 
 	diagfwd_channel_read(info->fwd_ctxt);
 }

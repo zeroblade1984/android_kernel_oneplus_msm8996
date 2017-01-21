@@ -161,6 +161,7 @@ struct cpe_command_node {
 struct cpe_info {
 	struct list_head main_queue;
 	struct completion cmd_complete;
+	struct completion thread_comp;
 	void *thread_handler;
 	bool stop_thread;
 	struct mutex msg_lock;
@@ -392,31 +393,34 @@ static int cpe_worker_thread(void *context)
 {
 	struct cpe_info *t_info = (struct cpe_info *)context;
 
-	while (!kthread_should_stop()) {
+	/*
+	 * Thread will run until requested to stop explicitly
+	 * by setting the t_info->stop_thread flag
+	 */
+	while (1) {
+		/* Wait for command to be processed */
 		wait_for_completion(&t_info->cmd_complete);
 
 		CPE_SVC_GRAB_LOCK(&t_info->msg_lock, "msg_lock");
 		cpe_cmd_received(t_info);
 		reinit_completion(&t_info->cmd_complete);
+		/* Check if thread needs to be stopped */
 		if (t_info->stop_thread)
 			goto unlock_and_exit;
 		CPE_SVC_REL_LOCK(&t_info->msg_lock, "msg_lock");
 	};
 
-	pr_debug("%s: thread exited\n", __func__);
-	return 0;
-
 unlock_and_exit:
 	pr_debug("%s: thread stopped\n", __func__);
 	CPE_SVC_REL_LOCK(&t_info->msg_lock, "msg_lock");
-
-	return 0;
+	complete_and_exit(&t_info->thread_comp, 0);
 }
 
 static void cpe_create_worker_thread(struct cpe_info *t_info)
 {
 	INIT_LIST_HEAD(&t_info->main_queue);
 	init_completion(&t_info->cmd_complete);
+	init_completion(&t_info->thread_comp);
 	t_info->stop_thread = false;
 	t_info->thread_handler = kthread_run(cpe_worker_thread,
 		(void *)t_info, "cpe-worker-thread");
@@ -440,9 +444,12 @@ static void cpe_cleanup_worker_thread(struct cpe_info *t_info)
 	complete(&t_info->cmd_complete);
 	CPE_SVC_REL_LOCK(&t_info->msg_lock, "msg_lock");
 
-	kthread_stop(t_info->thread_handler);
-
+	/* Wait for the thread to exit */
+	wait_for_completion(&t_info->thread_comp);
 	t_info->thread_handler = NULL;
+
+	pr_debug("%s: Thread cleaned up successfully\n",
+		 __func__);
 }
 
 static enum cpe_svc_result
@@ -838,6 +845,7 @@ static void cpe_process_irq_int(u32 irq,
 	struct cpe_send_msg *m;
 	u8 size = 0;
 	bool err_irq = false;
+	struct cmi_hdr *hdr;
 
 	pr_debug("%s: irq = %u\n", __func__, irq);
 
@@ -904,6 +912,18 @@ static void cpe_process_irq_int(u32 irq,
 		break;
 
 	case CPE_STATE_SENDING_MSG:
+		hdr = CMI_GET_HEADER(t_info->tgt->outbox);
+		if (CMI_GET_OPCODE(t_info->tgt->outbox) ==
+		    CPE_LSM_SESSION_EVENT_DETECTION_STATUS_V2) {
+			pr_debug("%s: session_id: %u, state: %d,%d, event received\n",
+				 __func__, CMI_HDR_GET_SESSION_ID(hdr),
+				t_info->state, t_info->substate);
+			temp_node.command = CPE_CMD_PROC_INCOMING_MSG;
+			temp_node.data = NULL;
+			t_info->cpe_process_command(&temp_node);
+			break;
+		}
+
 		m = (struct cpe_send_msg *)t_info->pending;
 
 		switch (t_info->substate) {

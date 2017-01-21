@@ -516,15 +516,24 @@ static void bulk_out_complete(struct usb_ep *ep, struct usb_request *req)
 	struct fsg_common	*common = ep->driver_data;
 	struct fsg_buffhd	*bh = req->context;
 
-	dump_msg(common, "bulk-out", req->buf, req->actual);
 	if (req->status || req->actual != bh->bulk_out_intended_length)
-		DBG(common, "%s --> %d, %u/%u\n", __func__,
+		pr_debug("%s --> %d, %u/%u\n", __func__,
 		    req->status, req->actual, bh->bulk_out_intended_length);
 	if (req->status == -ECONNRESET)		/* Request was cancelled */
 		usb_ep_fifo_flush(ep);
 
 	/* Hold the lock while we update the request and buffer states */
 	smp_wmb();
+	/*
+	 * Disconnect and completion might race each other and driver data
+	 * is set to NULL during ep disable. So, add a check if that is case.
+	 */
+	if (!common) {
+		bh->outreq_busy = 0;
+		return;
+	}
+
+	dump_msg(common, "bulk-out", req->buf, req->actual);
 	spin_lock(&common->lock);
 	bh->outreq_busy = 0;
 	bh->state = BUF_STATE_FULL;
@@ -1316,6 +1325,7 @@ static int do_read_header(struct fsg_common *common, struct fsg_buffhd *bh)
 	store_cdrom_address(&buf[4], msf, lba);
 	return 8;
 }
+
 static void _lba_to_msf(u8 *buf, int lba)
 {
 	lba += 150;
@@ -1551,6 +1561,7 @@ static int do_read_cd(struct fsg_common *common)
 
 	return -EIO;		/* No default reply */
 }
+
 static int do_read_toc(struct fsg_common *common, struct fsg_buffhd *bh)
 {
 	struct fsg_lun	*curlun = common->curlun;
@@ -1568,6 +1579,7 @@ static int do_read_toc(struct fsg_common *common, struct fsg_buffhd *bh)
 
 	if (format == 2)
 		return _read_toc_raw(common, bh);
+
 	memset(buf, 0, 20);
 	buf[1] = (20-2);		/* TOC data length */
 	buf[2] = 1;			/* First track number */
@@ -2339,13 +2351,13 @@ static int do_scsi_command(struct fsg_common *common)
 			goto unknown_cmnd;
 		common->data_size_from_cmnd =
 			get_unaligned_be16(&common->cmnd[7]);
+
 		reply = check_command(common, 10, DATA_DIR_TO_HOST,
 				      (0xf<<6) | (1<<1), 1,
 				      "READ TOC");
 		if (reply == 0)
 			reply = do_read_toc(common, bh);
 		break;
-
 	case READ_CD:
 		common->data_size_from_cmnd = ((common->cmnd[6] << 16)
 						| (common->cmnd[7] << 8)
@@ -3895,7 +3907,6 @@ static void fsg_lun_drop(struct config_group *group, struct config_item *item)
 		struct config_item *gadget;
 
 		gadget = group->cg_item.ci_parent->ci_parent;
-		unregister_gadget_item(gadget);
 	}
 
 	fsg_common_remove_lun(lun_opts->lun, fsg_opts->common->sysfs);

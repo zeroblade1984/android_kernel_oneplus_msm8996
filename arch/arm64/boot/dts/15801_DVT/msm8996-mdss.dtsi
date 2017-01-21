@@ -20,6 +20,9 @@
 		interrupts = <0 83 0>;
 		vdd-supply = <&gdsc_mdss>;
 
+		#address-cells = <1>;
+		#size-cells = <1>;
+
 		/* Bus Scale Settings */
 		qcom,msm-bus,name = "mdss_mdp";
 		qcom,msm-bus,num-cases = <3>;
@@ -97,7 +100,8 @@
 		qcom,mdss-pingpong-off = <0x00071000 0x00071800
 					  0x00072000 0x00072800>;
 		qcom,mdss-slave-pingpong-off = <0x00073000>;
-		qcom,mdss-ppb-off = <0x00000330 0x00000338>;
+		qcom,mdss-ppb-ctl-off = <0x00000330 0x00000338>;
+		qcom,mdss-ppb-cfg-off = <0x00000334 0x0000033C>;
 		qcom,mdss-has-pingpong-split;
 
 		qcom,mdss-ad-off = <0x0079000 0x00079800 0x0007a000>;
@@ -108,7 +112,9 @@
 		qcom,mdss-highest-bank-bit = <0x2>;
 		qcom,mdss-has-decimation;
 		qcom,mdss-has-rotator-downscale;
-		qcom,mdss-idle-power-collapse-enabled;
+		//ifndef vendor_edit
+		//qcom,mdss-idle-power-collapse-enabled;
+		//end
 		clocks = <&clock_mmss clk_mdss_ahb_clk>,
 			 <&clock_mmss clk_mdss_axi_clk>,
 			 <&clock_mmss clk_mdp_clk_src>,
@@ -117,8 +123,7 @@
 		clock-names = "iface_clk", "bus_clk", "core_clk_src",
 				"core_clk", "vsync_clk";
 
-		qcom,mdp-settings = <0x01190 0x00000000>,
-				    <0x012ac 0xc0000ccc>,
+		qcom,mdp-settings = <0x012ac 0xc0000ccc>,
 				    <0x012b4 0xc0000ccc>,
 				    <0x012bc 0x00cccccc>,
 				    <0x012c4 0x000000cc>,
@@ -424,7 +429,7 @@
 						00 00 10 0f
 						00 00 10 8f];
 		};
-/*//guozhiming modify for lcd 2015-10-15
+/*
 		mdss_dsi1: qcom,mdss_dsi_ctrl1@996000 {
 			compatible = "qcom,mdss-dsi-ctrl";
 			label = "MDSS DSI CTRL->1";
@@ -489,9 +494,7 @@
 	mdss_hdmi_tx: qcom,hdmi_tx@9a0000 {
 		cell-index = <0>;
 		compatible = "qcom,hdmi-tx";
-		/*Vendor_Edit(yankelong add to avoid hdmi device adding into platform 2015-11-06)*/
 		status = "disabled";
-		/*end*/
 		reg =	<0x9a0000 0x50c>,
 			<0x70000 0x6158>,
 			<0x9e0000 0xFFF>;

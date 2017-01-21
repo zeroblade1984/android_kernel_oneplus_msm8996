@@ -1636,7 +1636,7 @@ static bool rcu_preempt_cpu_has_nonlazy_callbacks(int cpu)
 }
 
 #endif /* else #ifdef CONFIG_TREE_PREEMPT_RCU */
-
+ 
 #ifndef CONFIG_RCU_NOCB_CPU_ALL
 
 /*

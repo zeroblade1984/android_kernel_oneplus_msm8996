@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -88,6 +88,7 @@ static DEFINE_SPINLOCK(reg_spinlock);
 #define CCU_RIVA_LAST_ADDR2_OFFSET		0x10c
 
 #define PRONTO_PMU_SPARE_OFFSET       0x1088
+#define PMU_A2XB_CFG_HSPLIT_RESP_LIMIT_OFFSET	0x117C
 
 #define PRONTO_PMU_COM_GDSCR_OFFSET       0x0024
 #define PRONTO_PMU_COM_GDSCR_SW_COLLAPSE  BIT(0)
@@ -155,11 +156,6 @@ static DEFINE_SPINLOCK(reg_spinlock);
 #define PRONTO_SAW2_SPM_CTL		0x30
 #define PRONTO_SAW2_SAW2_VERSION		0xFD0
 #define PRONTO_SAW2_MAJOR_VER_OFFSET		0x1C
-#define PRONTO_SAW2_MAJOR_VER_3		0x3
-#define PRONTO_SAW2_SPM_SLP_SEQ		0x80
-#define PRONTO_SAW2_SPM_SLP_SEQ_2		0x400
-#define PRONTO_SAW2_SPM_SLP_SEQ_OFFSET		0x04
-#define PRONTO_SAW2_SPM_SLP_SEQ_COUNT		0x08
 
 #define PRONTO_PLL_STATUS_OFFSET		0x1c
 #define PRONTO_PLL_MODE_OFFSET			0x1c0
@@ -177,6 +173,7 @@ static DEFINE_SPINLOCK(reg_spinlock);
 #define MCU_FDBR_FDAHB_ERR_OFFSET		0x3a4
 #define MCU_FDBR_CDAHB_TIMEOUT_OFFSET		0x3a8
 #define MCU_FDBR_FDAHB_TIMEOUT_OFFSET		0x3ac
+#define PRONTO_PMU_CCPU_BOOT_REMAP_OFFSET	0x2004
 
 #define WCNSS_DEF_WLAN_RX_BUFF_COUNT		1024
 
@@ -357,6 +354,7 @@ static struct {
 	int		smd_channel_ready;
 	u32		wlan_rx_buff_count;
 	int		is_vsys_adc_channel;
+	int		is_a2xb_split_reg;
 	smd_channel_t	*smd_ch;
 	unsigned char	wcnss_version[WCNSS_VERSION_LEN];
 	unsigned char   fw_major;
@@ -595,8 +593,7 @@ void wcnss_pronto_is_a2xb_bus_stall(void *tst_addr, u32 fifo_mask, char *type)
 void wcnss_pronto_log_debug_regs(void)
 {
 	void __iomem *reg_addr, *tst_addr, *tst_ctrl_addr;
-	u32 reg = 0, reg2 = 0, reg3 = 0, reg4 = 0, offset_addr = 0;
-	int i;
+	u32 reg = 0, reg2 = 0, reg3 = 0, reg4 = 0;
 
 
 	reg_addr = penv->msm_wcnss_base + PRONTO_PMU_SPARE_OFFSET;
@@ -635,22 +632,21 @@ void wcnss_pronto_log_debug_regs(void)
 	reg = readl_relaxed(reg_addr);
 	pr_err("PRONTO_SAW2_SPM_CTL %08x\n", reg);
 
+	if (penv->is_a2xb_split_reg) {
+		reg_addr = penv->msm_wcnss_base +
+			   PMU_A2XB_CFG_HSPLIT_RESP_LIMIT_OFFSET;
+		reg = readl_relaxed(reg_addr);
+		pr_err("PMU_A2XB_CFG_HSPLIT_RESP_LIMIT %08x\n", reg);
+	}
+
 	reg_addr = penv->pronto_saw2_base + PRONTO_SAW2_SAW2_VERSION;
 	reg = readl_relaxed(reg_addr);
 	pr_err("PRONTO_SAW2_SAW2_VERSION %08x\n", reg);
 	reg >>= PRONTO_SAW2_MAJOR_VER_OFFSET;
 
-	if (reg >= PRONTO_SAW2_MAJOR_VER_3)
-		offset_addr = PRONTO_SAW2_SPM_SLP_SEQ_2;
-	else
-		offset_addr = PRONTO_SAW2_SPM_SLP_SEQ;
-
-	for (i = 0; i <= PRONTO_SAW2_SPM_SLP_SEQ_COUNT; i++) {
-		reg_addr = penv->pronto_saw2_base + offset_addr
-			+ (i * PRONTO_SAW2_SPM_SLP_SEQ_OFFSET);
-		reg = readl_relaxed(reg_addr);
-		pr_err("PRONTO_SAW2_SPM_SLP_SEQ_ENTRY_%d %08x\n", i, reg);
-	}
+	reg_addr = penv->msm_wcnss_base  + PRONTO_PMU_CCPU_BOOT_REMAP_OFFSET;
+	reg = readl_relaxed(reg_addr);
+	pr_err("PRONTO_PMU_CCPU_BOOT_REMAP %08x\n", reg);
 
 	reg_addr = penv->pronto_pll_base + PRONTO_PLL_STATUS_OFFSET;
 	reg = readl_relaxed(reg_addr);
@@ -2127,10 +2123,8 @@ exit:
 	return;
 }
 
-
-static void wcnssctrl_rx_handler(struct work_struct *worker)
+static void wcnss_process_smd_msg(int len)
 {
-	int len = 0;
 	int rc = 0;
 	unsigned char buf[sizeof(struct wcnss_version)];
 	unsigned char build[WCNSS_MAX_BUILD_VER_LEN+1];
@@ -2139,17 +2133,6 @@ static void wcnssctrl_rx_handler(struct work_struct *worker)
 	struct wcnss_version *pversion;
 	int hw_type;
 	unsigned char fw_status = 0;
-
-	len = smd_read_avail(penv->smd_ch);
-	if (len > WCNSS_MAX_FRAME_SIZE) {
-		pr_err("wcnss: frame larger than the allowed size\n");
-		smd_read(penv->smd_ch, NULL, len);
-		return;
-	}
-	if (len < sizeof(struct smd_msg_hdr)) {
-		pr_err("wcnss: incomplete header available len = %d\n", len);
-		return;
-	}
 
 	rc = smd_read(penv->smd_ch, buf, sizeof(struct smd_msg_hdr));
 	if (rc < sizeof(struct smd_msg_hdr)) {
@@ -2217,7 +2200,7 @@ static void wcnssctrl_rx_handler(struct work_struct *worker)
 	case WCNSS_BUILD_VER_RSP:
 		if (len > WCNSS_MAX_BUILD_VER_LEN) {
 			pr_err("wcnss: invalid build version data from wcnss %d\n",
-					len);
+				len);
 			return;
 		}
 		rc = smd_read(penv->smd_ch, build, len);
@@ -2249,7 +2232,6 @@ static void wcnssctrl_rx_handler(struct work_struct *worker)
 		penv->is_cbc_done = 1;
 		pr_debug("wcnss: received WCNSS_CBC_COMPLETE_IND from FW\n");
 		break;
-
 	case WCNSS_CALDATA_UPLD_REQ:
 		extract_cal_data(len);
 		break;
@@ -2258,6 +2240,33 @@ static void wcnssctrl_rx_handler(struct work_struct *worker)
 		pr_err("wcnss: invalid message type %d\n", phdr->msg_type);
 	}
 	return;
+}
+
+static void wcnssctrl_rx_handler(struct work_struct *worker)
+{
+	int len;
+
+	while (1) {
+		len = smd_read_avail(penv->smd_ch);
+		if (0 == len) {
+			pr_debug("wcnss: No more data to be read\n");
+			return;
+		}
+
+		if (len > WCNSS_MAX_FRAME_SIZE) {
+			pr_err("wcnss: frame larger than the allowed size\n");
+			smd_read(penv->smd_ch, NULL, len);
+			return;
+		}
+
+		if (len < sizeof(struct smd_msg_hdr)) {
+			pr_err("wcnss: incomplete header available len = %d\n",
+			       len);
+			return;
+		}
+
+		wcnss_process_smd_msg(len);
+	}
 }
 
 static void wcnss_send_version_req(struct work_struct *worker)
@@ -2727,6 +2736,9 @@ wcnss_trigger_config(struct platform_device *pdev)
 
 	penv->is_vsys_adc_channel = of_property_read_bool(pdev->dev.of_node,
 						"qcom,has-vsys-adc-channel");
+
+	penv->is_a2xb_split_reg = of_property_read_bool(pdev->dev.of_node,
+						"qcom,has-a2xb-split-reg");
 
 	if (of_property_read_u32(pdev->dev.of_node,
 			"qcom,wlan-rx-buff-count", &penv->wlan_rx_buff_count)) {
@@ -3340,7 +3352,7 @@ static ssize_t wcnss_wlan_write(struct file *fp, const char __user
 		return -EFAULT;
 
 	if ((UINT32_MAX - count < penv->user_cal_rcvd) ||
-	     MAX_CALIBRATED_DATA_SIZE < count + penv->user_cal_rcvd) {
+		(penv->user_cal_exp_size < count + penv->user_cal_rcvd)) {
 		pr_err(DEVICE " invalid size to write %zu\n", count +
 				penv->user_cal_rcvd);
 		rc = -ENOMEM;

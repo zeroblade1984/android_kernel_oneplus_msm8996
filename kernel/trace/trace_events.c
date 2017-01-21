@@ -645,7 +645,8 @@ t_next(struct seq_file *m, void *v, loff_t *pos)
 		 * The ftrace subsystem is for showing formats only.
 		 * They can not be enabled or disabled via the event files.
 		 */
-		if (call->class && call->class->reg)
+		if (call->class && call->class->reg &&
+		    !(call->flags & TRACE_EVENT_FL_IGNORE_ENABLE))
 			return file;
 	}
 
@@ -2480,7 +2481,7 @@ static __init int event_trace_init(void)
 }
 early_initcall(event_trace_memsetup);
 core_initcall(event_trace_enable);
-fs_initcall(event_trace_init);
+late_initcall(event_trace_init);
 
 #ifdef CONFIG_FTRACE_STARTUP_TEST
 

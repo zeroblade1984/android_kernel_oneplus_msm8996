@@ -25,6 +25,7 @@ typedef struct
     char operator_str[16];
     char pcba_number[28];
     unsigned int boot_aging_count;
+    uint32 network_info_array[10];
 }param_product_t;
 
 typedef struct
@@ -41,6 +42,9 @@ typedef struct
     uint gamma_select;
     uint lcm_acl;
     uint lcm_srgb_mode;
+    uint lcm_adobe_rgb_mode;
+    uint lcm_dci_p3_mode;
+	
 }param_lcd_t;
 
 typedef struct
@@ -80,21 +84,105 @@ typedef struct
     //Add value must below here
 }param_rtc_t;
 
+
+/****************** PARAM CRASH RECORD FEATURE ******************
+ * If you want to modify PARAM crash record struct,             *
+ * please sync with                                             *
+ * /system/core/include/param/param.h and                       *
+ * /bootable/bootloader/lk/platform/oneplus/include/op_param.h  *
+ *                                                              *
+ * liochen@BSP, 2016/07/22, store crash record in PARAM         *
+ ****************************************************************/
 typedef struct
 {
     param_product_desc_head_t sid_head;
-    int android_crash_count;
-    int kernel_crash_count;
-    int modem_crash_count;
-    int wifi_bt_crash_count;
-    int venus_crash_count;
+    int crash_count;
+    char crash_record_0[20];
+    char crash_record_1[20];
+    char crash_record_2[20];
+    char crash_record_3[20];
+    char crash_record_4[20];
+    char crash_record_5[20];
+    char crash_record_6[20];
+    char crash_record_7[20];
+    char crash_record_8[20];
+    char crash_record_9[20];
+    char crash_record_10[20];
+    char crash_record_11[20];
+    char crash_record_12[20];
+    char crash_record_13[20];
+    char crash_record_14[20];
+    char crash_record_15[20];
 }param_crash_record_t;
+/***************************************************/
+
+/****************** PARAM CHARGER TYPE RECORD FEATURE ******************
+ *                                                              *
+ * yangfb@BSP, 2016/09/14, store chager type record in PARAM         *
+ ****************************************************************/
+typedef struct
+{
+    param_product_desc_head_t sid_head;
+    int type_count;
+    char type_record_0[20];
+    char type_record_1[20];
+    char type_record_2[20];
+    char type_record_3[20];
+    char type_record_4[20];
+    char type_record_5[20];
+    char type_record_6[20];
+    char type_record_7[20];
+    char type_record_8[20];
+    char type_record_9[20];
+    char type_record_10[20];
+    char type_record_11[20];
+    char type_record_12[20];
+    char type_record_13[20];
+    char type_record_14[20];
+    char type_record_15[20];
+    char type_record_16[20];
+    char type_record_17[20];
+    char type_record_18[20];
+    char type_record_19[20];
+    char type_record_20[20];
+    char type_record_21[20];
+    char type_record_22[20];
+    char type_record_23[20];
+    char type_record_24[20];
+    char type_record_25[20];
+    char type_record_26[20];
+    char type_record_27[20];
+    char type_record_28[20];
+    char type_record_29[20];
+    char type_record_30[20];
+    char type_record_31[20];
+    char type_record_32[20];
+    char type_record_33[20];
+    char type_record_34[20];
+    char type_record_35[20];
+    char type_record_36[20];
+    char type_record_37[20];
+    char type_record_38[20];
+    char type_record_39[20];
+    char type_record_40[20];
+    char type_record_41[20];
+    char type_record_42[20];
+    char type_record_43[20];
+    char type_record_44[20];
+    char type_record_45[20];
+    char type_record_46[20];
+    char type_record_47[20];
+
+}param_chg_type_record_t;
+/***************************************************/
+
 
 typedef struct
 {
     param_product_desc_head_t sid_head;
     /* Only for wlan evm chip */
     int use_special_boarddata;
+
     //Add value must below here
 }param_misc_t;
 
@@ -109,6 +197,7 @@ typedef struct
     char erase_0[16]; //the recently erased partition
     char erase_1[16]; //the next-recently erased partition
     char erase_2[16]; //the third recently erased partition
+    int is_angela;
 }param_saleinfo_t;
 
 
@@ -148,6 +237,13 @@ typedef enum {
 	PARAM_SID_DOWNLOAD,
 	PARAM_SID_INVALID
 } param_sid_index_t;
+
+typedef enum {
+	BOOT_UP = 0x0,
+	BOOT_INTO_LK = 0x1234,
+	BOOT_INTO_KERNEL = 0x5678,
+	BOOT_INTO_ANDROID = 0x9012
+} device_boot_stage_t;
 
 #if 0
 static char * sid_name_strs[PARAM_SID_INVALID] = {
@@ -196,7 +292,26 @@ int get_param_gamma_select(uint * gamma_select);
 int get_param_pcba_number(char * pcbe_number);
 /* Only for wlan evm chip */
 int get_param_nvm_boarddata(uint * nvm_boarddata_select);
+
+
 int set_param_lcm_srgb_mode(uint * lcm_srgb_mdoe);
-int get_param_lcm_srgb_mode(uint *lcm_srgb_mdoe);
+int get_param_lcm_srgb_mode(uint *lcm_srgb_mode);
+int set_param_lcm_adobe_rgb_mode(uint * lcm_adobe_rgb_mode);
+int get_param_lcm_adobe_rgb_mode(uint *lcm_adobe_rgb_mode);
+int set_param_lcm_dci_p3_mode(uint * lcm_dci_p3_mode);
+int get_param_lcm_dci_p3_mode(uint *lcm_dci_p3_mode);
+
+
+int get_param_download_info(param_download_t *download_info);
+
+int get_param_crash_record_count(uint *crash_record_count);
+int set_param_crash_record_count(uint *crash_record_count);
+int set_param_crash_record_value(uint offset, char *crash_record_value, uint size);
+
+
+int get_param_charger_type_count(uint *type_record_count);
+int set_param_charger_type_count(uint *type_record_count);
+int set_param_charger_type_value(uint offset, char *crash_record_value, uint size);
+
 
 #endif

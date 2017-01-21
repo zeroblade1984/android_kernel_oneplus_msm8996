@@ -38,7 +38,7 @@
 #include <linux/slab.h>
 #include <linux/pid_namespace.h>
 #include <linux/security.h>
-
+#include <linux/proc_fs.h>
 #include "binder.h"
 #include "binder_trace.h"
 
@@ -702,11 +702,6 @@ static struct binder_buffer *binder_alloc_buf(struct binder_proc *proc,
 		buffer = rb_entry(best_fit, struct binder_buffer, rb_node);
 		buffer_size = binder_buffer_size(proc, buffer);
 	}
-	if(buffer->data == NULL){
-		pr_err("%d: binder_alloc_buf size %zd failed, buffer data is NULL\n",
-			proc->pid, size);
-		return NULL;
-	}
 
 	binder_debug(BINDER_DEBUG_BUFFER_ALLOC,
 		     "%d: binder_alloc_buf size %zd got buffer %p size %zd\n",
@@ -1004,7 +999,7 @@ static int binder_dec_node(struct binder_node *node, int strong, int internal)
 
 
 static struct binder_ref *binder_get_ref(struct binder_proc *proc,
-					 uint32_t desc)
+					 uint32_t desc, bool need_strong_ref)
 {
 	struct rb_node *n = proc->refs_by_desc.rb_node;
 	struct binder_ref *ref;
@@ -1012,12 +1007,16 @@ static struct binder_ref *binder_get_ref(struct binder_proc *proc,
 	while (n) {
 		ref = rb_entry(n, struct binder_ref, rb_node_desc);
 
-		if (desc < ref->desc)
+		if (desc < ref->desc) {
 			n = n->rb_left;
-		else if (desc > ref->desc)
+		} else if (desc > ref->desc) {
 			n = n->rb_right;
-		else
+		} else if (need_strong_ref && !ref->strong) {
+			binder_user_error("tried to use weak ref as strong ref\n");
+			return NULL;
+		} else {
 			return ref;
+		}
 	}
 	return NULL;
 }
@@ -1287,8 +1286,8 @@ static void binder_transaction_buffer_release(struct binder_proc *proc,
 		} break;
 		case BINDER_TYPE_HANDLE:
 		case BINDER_TYPE_WEAK_HANDLE: {
-			struct binder_ref *ref = binder_get_ref(proc, fp->handle);
-
+			struct binder_ref *ref = binder_get_ref(proc, fp->handle,
+						fp->type == BINDER_TYPE_HANDLE);
 			if (ref == NULL) {
 				pr_err("transaction release %d bad handle %d\n",
 				 debug_id, fp->handle);
@@ -1381,8 +1380,7 @@ static void binder_transaction(struct binder_proc *proc,
 	} else {
 		if (tr->target.handle) {
 			struct binder_ref *ref;
-
-			ref = binder_get_ref(proc, tr->target.handle);
+			ref = binder_get_ref(proc, tr->target.handle, true);
 			if (ref == NULL) {
 				binder_user_error("%d:%d got transaction to invalid handle\n",
 					proc->pid, thread->pid);
@@ -1591,8 +1589,8 @@ static void binder_transaction(struct binder_proc *proc,
 		} break;
 		case BINDER_TYPE_HANDLE:
 		case BINDER_TYPE_WEAK_HANDLE: {
-			struct binder_ref *ref = binder_get_ref(proc, fp->handle);
-
+			struct binder_ref *ref = binder_get_ref(proc, fp->handle,
+						fp->type == BINDER_TYPE_HANDLE);
 			if (ref == NULL) {
 				binder_user_error("%d:%d got transaction with invalid handle, %d\n",
 						proc->pid,
@@ -1711,8 +1709,16 @@ static void binder_transaction(struct binder_proc *proc,
 	list_add_tail(&t->work.entry, target_list);
 	tcomplete->type = BINDER_WORK_TRANSACTION_COMPLETE;
 	list_add_tail(&tcomplete->entry, &thread->todo);
-	if (target_wait)
-		wake_up_interruptible(target_wait);
+	if (target_wait) {
+		if (reply || !(t->flags & TF_ONE_WAY)) {
+			preempt_disable();
+			wake_up_interruptible_sync(target_wait);
+			preempt_enable_no_resched();
+		}
+		else {
+			wake_up_interruptible(target_wait);
+		}
+	}
 	return;
 
 err_get_unused_fd_failed:
@@ -1802,7 +1808,9 @@ static int binder_thread_write(struct binder_proc *proc,
 						ref->desc);
 				}
 			} else
-				ref = binder_get_ref(proc, target);
+				ref = binder_get_ref(proc, target,
+						     cmd == BC_ACQUIRE ||
+						     cmd == BC_RELEASE);
 			if (ref == NULL) {
 				binder_user_error("%d:%d refcount change on invalid ref %d\n",
 					proc->pid, thread->pid, target);
@@ -1998,7 +2006,7 @@ static int binder_thread_write(struct binder_proc *proc,
 			if (get_user(cookie, (binder_uintptr_t __user *)ptr))
 				return -EFAULT;
 			ptr += sizeof(binder_uintptr_t);
-			ref = binder_get_ref(proc, target);
+			ref = binder_get_ref(proc, target, false);
 			if (ref == NULL) {
 				binder_user_error("%d:%d %s invalid ref %d\n",
 					proc->pid, thread->pid,
@@ -2257,8 +2265,6 @@ retry:
             if(t->from) {
                 task_thread_info(current)->pid = t->from->pid;
                 task_thread_info(current)->tgid = t->from->proc->pid;
-                //printk("%s to waken by %5d:%5d\n", current->comm, task_thread_info(current)->tgid, task_thread_info(current)->pid);
-                //printk("%s to waken by %5d:%5d\n", current->comm, t->from->proc->pid, t->from->pid);
             }
 		} break;
 		case BINDER_WORK_TRANSACTION_COMPLETE: {
@@ -3677,6 +3683,51 @@ BINDER_DEBUG_ENTRY(stats);
 BINDER_DEBUG_ENTRY(transactions);
 BINDER_DEBUG_ENTRY(transaction_log);
 
+static int proc_state_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, binder_state_show, NULL);
+}
+
+static int proc_transactions_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, binder_transactions_show, NULL);
+}
+
+static int proc_transaction_log_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, binder_transaction_log_show, &binder_transaction_log);
+}
+
+
+static const struct file_operations proc_state_operations = {
+  .open       = proc_state_open,
+  .read       = seq_read,
+  .llseek     = seq_lseek,
+  .release    = single_release,
+};
+
+static const struct file_operations proc_transactions_operations = {
+  .open       = proc_transactions_open,
+  .read       = seq_read,
+  .llseek     = seq_lseek,
+  .release    = single_release,
+};
+
+static const struct file_operations proc_transaction_log_operations = {
+  .open       = proc_transaction_log_open,
+  .read       = seq_read,
+  .llseek     = seq_lseek,
+  .release    = single_release,
+};
+
+static int binder_proc_init(void)
+{
+    proc_create("proc_state", 0, NULL, &proc_state_operations);
+    proc_create("proc_transactions", 0, NULL, &proc_transactions_operations);
+    proc_create("proc_transaction_log", 0, NULL, &proc_transaction_log_operations);
+    return 0;
+}
+
 static int __init binder_init(void)
 {
 	int ret;
@@ -3717,6 +3768,7 @@ static int __init binder_init(void)
 				    &binder_transaction_log_failed,
 				    &binder_transaction_log_fops);
 	}
+    binder_proc_init();
 	return ret;
 }
 
