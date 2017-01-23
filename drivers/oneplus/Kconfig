@@ -1,8 +1,14 @@
+config ONEPLUS3_BLD
+        bool "Build for OnePlus3"
+
+config ONEPLUS3T_BLD
+        bool "Build for OnePlus3T"
+
 config OEM_DEBUG_SUPORT
         bool
         default y
 
 config OEM_TRACE_SUPORT
-	default y
-	depends on OEM_DEBUG_SUPORT
-	bool "OEM debug function, enable it will register the device, which under /dev/otracer."
+	    default y
+	    depends on OEM_DEBUG_SUPORT
+	    bool "OEM debug function, enable it will register the device, which under /dev/otracer."
