@@ -322,7 +322,6 @@ static struct rcg_clk blsp1_qup1_i2c_apps_clk_src = {
 
 static struct clk_freq_tbl ftbl_blsp1_qup1_spi_apps_clk_src[] = {
 	F(    960000,         cxo_clk_src,   10,    1,     2),
-	F(   4000000,         cxo_clk_src,   2,    5,     12),
 	F(   4800000,         cxo_clk_src,    4,    0,     0),
 	F(   9600000,         cxo_clk_src,    2,    0,     0),
 	F(  15000000, gpll0_out_main,   10,    1,     4),
@@ -1340,9 +1339,11 @@ static struct rcg_clk pdm2_clk_src = {
 	},
 };
 
-/* Frequency table might change later */
 static struct clk_freq_tbl ftbl_qspi_ser_clk_src[] = {
-	F( 192000000,  gpll4_out_main,    2,    0,     0),
+	F(  75000000,  gpll0_out_main,    8,    0,     0),
+	F( 150000000,  gpll0_out_main,    4,    0,     0),
+	F( 256000000,  gpll4_out_main,  1.5,    0,     0),
+	F( 300000000,  gpll0_out_main,    2,    0,     0),
 	F_END
 };
 

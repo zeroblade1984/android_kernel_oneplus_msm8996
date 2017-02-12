@@ -34,7 +34,6 @@
 #include <linux/regmap.h>
 #include <sound/soc.h>
 #include "wcd9xxx-regmap.h"
-#include <sound/sounddebug.h>
 
 #define WCD9XXX_REGISTER_START_OFFSET 0x800
 #define WCD9XXX_SLIM_RW_MAX_TRIES 3
@@ -103,6 +102,7 @@ static const int wcd9xxx_cdc_types[] = {
 	[WCD9XXX] = WCD9XXX,
 	[WCD9330] = WCD9330,
 	[WCD9335] = WCD9335,
+	[WCD9306] = WCD9306,
 };
 
 static const struct of_device_id wcd9xxx_of_match[] = {
@@ -112,6 +112,8 @@ static const struct of_device_id wcd9xxx_of_match[] = {
 	  .data = (void *)&wcd9xxx_cdc_types[WCD9335]},
 	{ .compatible = "qcom,tasha-i2c-pgd",
 	  .data = (void *)&wcd9xxx_cdc_types[WCD9335]},
+	{ .compatible = "qcom,wcd9xxx-i2c",
+	  .data = (void *)&wcd9xxx_cdc_types[WCD9306]},
 	{ .compatible = "qcom,wcd9xxx-i2c",
 	  .data = (void *)&wcd9xxx_cdc_types[WCD9330]},
 	{ }
@@ -1283,6 +1285,7 @@ static void wcd9xxx_chip_version_ctrl_reg(struct wcd9xxx *wcd9xxx,
 		*byte_2 = WCD9335_CHIP_TIER_CTRL_CHIP_ID_BYTE2;
 		break;
 	case WCD9330:
+	case WCD9306:
 	case WCD9XXX:
 	default:
 		*byte_0 = WCD9XXX_A_CHIP_ID_BYTE_0;
@@ -2269,6 +2272,10 @@ static int wcd9xxx_i2c_probe(struct i2c_client *client,
 				 __func__);
 			wcd9xxx->type = WCD9XXX;
 		}
+
+		if (pdata->cdc_variant == WCD9330)
+			wcd9xxx->type = WCD9330;
+
 		wcd9xxx_set_codec_specific_param(wcd9xxx);
 		if (wcd9xxx->using_regmap) {
 			wcd9xxx->regmap = devm_regmap_init_i2c_bus(client,
@@ -2646,6 +2653,7 @@ static u32 wcd9xxx_validate_dmic_sample_rate(struct device *dev,
 	case 2:
 	case 3:
 	case 4:
+	case 8:
 	case 16:
 		/* Valid dmic DIV factors */
 		dev_dbg(dev,
@@ -2681,6 +2689,7 @@ static struct wcd9xxx_pdata *wcd9xxx_populate_dt_pdata(struct device *dev)
 	u32 mclk_rate = 0;
 	u32 dmic_sample_rate = 0;
 	u32 mad_dmic_sample_rate = 0;
+	u32 ecpp_dmic_sample_rate = 0;
 	u32 dmic_clk_drive;
 	const char *static_prop_name = "qcom,cdc-static-supplies";
 	const char *ond_prop_name = "qcom,cdc-on-demand-supplies";
@@ -2805,6 +2814,21 @@ static struct wcd9xxx_pdata *wcd9xxx_populate_dt_pdata(struct device *dev)
 						  pdata->mclk_rate,
 						  "mad_dmic_rate");
 
+	ret = of_property_read_u32(dev->of_node,
+				"qcom,cdc-ecpp-dmic-rate",
+				&ecpp_dmic_sample_rate);
+	if (ret) {
+		dev_err(dev, "Looking up %s property in node %s failed, err = %d",
+			"qcom,cdc-ecpp-dmic-rate",
+			dev->of_node->full_name, ret);
+		ecpp_dmic_sample_rate = WCD9XXX_DMIC_SAMPLE_RATE_UNDEFINED;
+	}
+	pdata->ecpp_dmic_sample_rate =
+		wcd9xxx_validate_dmic_sample_rate(dev,
+						  ecpp_dmic_sample_rate,
+						  pdata->mclk_rate,
+						  "ecpp_dmic_rate");
+
 	pdata->dmic_clk_drv = WCD9XXX_DMIC_CLK_DRIVE_UNDEFINED;
 	ret = of_property_read_u32(dev->of_node,
 				   "qcom,cdc-dmic-clk-drv-strength",
@@ -2894,6 +2918,7 @@ static void wcd9xxx_set_codec_specific_param(struct wcd9xxx *wcd9xxx)
 	switch (wcd9xxx->type) {
 	case WCD9335:
 	case WCD9330:
+	case WCD9306:
 		wcd9xxx->using_regmap = true;
 		wcd9xxx->prev_pg_valid = false;
 		break;

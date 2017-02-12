@@ -31,9 +31,9 @@
 
 /*
 	        KEY1(GPIO1)	KEY2(GPIO92)
-1½ÅºÍ4½ÅÁ¬½Ó	0	            1         | MUTE
-2½ÅºÍ5½ÅÁ¬½Ó	1	            1         | Do Not Disturb
-4½ÅºÍ3½ÅÁ¬½Ó	1	            0         | Normal
+1ï¿½Åºï¿½4ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½	0	            1         | MUTE
+2ï¿½Åºï¿½5ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½	1	            1         | Do Not Disturb
+4ï¿½Åºï¿½3ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½	1	            0         | Normal
 
 */
 typedef enum {
@@ -92,7 +92,6 @@ static void send_input(int keyCode)
 
 static void switch_dev_work(struct work_struct *work)
 {
-
 	int keyCode;
 	int mode;
 	mutex_lock(&sem);
@@ -589,8 +588,8 @@ static int tristate_dev_probe(struct platform_device *pdev)
             }
 
        }
-       
-       
+
+
         INIT_WORK(&switch_data->work, switch_dev_work);
 
         init_timer(&switch_data->s_timer);

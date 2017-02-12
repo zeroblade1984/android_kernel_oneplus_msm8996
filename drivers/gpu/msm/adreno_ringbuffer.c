@@ -256,12 +256,12 @@ static int _adreno_ringbuffer_probe(struct adreno_device *adreno_dev,
 	 * switch pagetable
 	 */
 	ret = kgsl_allocate_global(KGSL_DEVICE(adreno_dev), &rb->pagetable_desc,
-		PAGE_SIZE, 0, KGSL_MEMDESC_PRIVILEGED);
+		PAGE_SIZE, 0, KGSL_MEMDESC_PRIVILEGED, "pagetable_desc");
 	if (ret)
 		return ret;
-
 	return kgsl_allocate_global(KGSL_DEVICE(adreno_dev), &rb->buffer_desc,
-			KGSL_RB_SIZE, KGSL_MEMFLAGS_GPUREADONLY, 0);
+			KGSL_RB_SIZE, KGSL_MEMFLAGS_GPUREADONLY,
+			0, "ringbuffer");
 }
 
 int adreno_ringbuffer_probe(struct adreno_device *adreno_dev, bool nopreempt)
@@ -736,6 +736,11 @@ adreno_ringbuffer_issueibcmds(struct kgsl_device_private *dev_priv,
 	if (!(cmdbatch->flags & KGSL_CMDBATCH_MARKER)
 		&& !(cmdbatch->flags & KGSL_CMDBATCH_SYNC))
 		device->flags &= ~KGSL_FLAG_WAKE_ON_TOUCH;
+
+	/* A3XX does not have support for command batch profiling */
+	if (adreno_is_a3xx(adreno_dev) &&
+			(cmdbatch->flags & KGSL_CMDBATCH_PROFILING))
+		return -EOPNOTSUPP;
 
 	/* Queue the command in the ringbuffer */
 	ret = adreno_dispatcher_queue_cmd(adreno_dev, drawctxt, cmdbatch,

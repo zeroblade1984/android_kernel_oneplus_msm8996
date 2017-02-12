@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -216,6 +216,7 @@ static void bcl_handle_hotplug(struct work_struct *work)
 
 	trace_bcl_sw_mitigation_event("start hotplug mitigation");
 	mutex_lock(&bcl_hotplug_mutex);
+
 	if  (bcl_soc_state == BCL_LOW_THRESHOLD
 		|| bcl_vph_state == BCL_LOW_THRESHOLD)
 		bcl_hotplug_request = bcl_soc_hotplug_mask;
@@ -256,7 +257,7 @@ static void update_cpu_freq(void)
 
 	if (bcl_vph_state == BCL_LOW_THRESHOLD
 		|| bcl_ibat_state == BCL_HIGH_THRESHOLD
-		|| bcl_soc_state == BCL_LOW_THRESHOLD) { //changed by taokai for removing frequency limit when usb is present 2016.3.31 
+		|| bcl_soc_state == BCL_LOW_THRESHOLD) {
 		cpufreq_req.freq.max_freq = (gbcl->bcl_monitor_type
 			== BCL_IBAT_MONITOR_TYPE) ? gbcl->btm_freq_max
 			: gbcl->bcl_p_freq_max;
@@ -281,19 +282,17 @@ static void update_cpu_freq(void)
 static void power_supply_callback(struct power_supply *psy)
 {
 	static struct power_supply *bms_psy;
-	//taokai@bsp add for detecting usb status 2016.03.11
 	static struct power_supply *usb_psy;
 	int usb_state;
 	bool is_usb_present;
-	//taokai@bsp add end 2016.03.11
 	union power_supply_propval ret = {0,};
 	int battery_percentage;
 	enum bcl_threshold_state prev_soc_state;
+
 	if (gbcl->bcl_mode != BCL_DEVICE_ENABLED) {
 		pr_debug("BCL is not enabled\n");
 		return;
 	}
-	//taokai@bsp add for detecting usb status 2016.03.11
 	if (!usb_psy)
 		usb_psy = power_supply_get_by_name("usb");
 	if (usb_psy) {
@@ -302,7 +301,6 @@ static void power_supply_callback(struct power_supply *psy)
 		if (usb_state == 0)
 			is_usb_present = ret.intval;
 	}
-	//taokai@bsp add end 2016.03.11
 	if (!bms_psy)
 		bms_psy = power_supply_get_by_name("bms");
 	if (bms_psy) {
@@ -313,14 +311,12 @@ static void power_supply_callback(struct power_supply *psy)
 		pr_debug("Battery SOC reported:%d\n", battery_soc_val);
 		trace_bcl_sw_mitigation("SoC reported", battery_soc_val);
 		prev_soc_state = bcl_soc_state;
-		//taokai@bsp add for deceding bcl_soc_state by usb status  2016.03.11
 		pr_debug("is_usb_present:%d", is_usb_present);
 		if(is_usb_present)
 			bcl_soc_state = BCL_HIGH_THRESHOLD;
 		else
 			bcl_soc_state = (battery_soc_val <= soc_low_threshold) ?
 					BCL_LOW_THRESHOLD : BCL_HIGH_THRESHOLD;
-		//taokai@bsp add end 2016.03.11
 		if (bcl_soc_state == prev_soc_state)
 			return;
 		trace_bcl_sw_mitigation_event(

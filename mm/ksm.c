@@ -301,8 +301,7 @@ static inline struct rmap_item *alloc_rmap_item(void)
 {
 	struct rmap_item *rmap_item;
 
-	rmap_item = kmem_cache_zalloc(rmap_item_cache, GFP_KERNEL |
-						__GFP_NORETRY | __GFP_NOWARN);
+	rmap_item = kmem_cache_zalloc(rmap_item_cache, GFP_KERNEL);
 	if (rmap_item)
 		ksm_rmap_items++;
 	return rmap_item;
@@ -1967,11 +1966,6 @@ int rmap_walk_ksm(struct page *page, struct rmap_walk_control *rwc)
 	if (!stable_node)
 		return ret;
 
-	if (rwc->target_vma) {
-               unsigned long address = vma_address(page, rwc->target_vma);
-               ret = rwc->rmap_one(page, rwc->target_vma, address, rwc->arg);
-               goto out;
-	}
 again:
 	hlist_for_each_entry(rmap_item, &stable_node->hlist, hlist) {
 		struct anon_vma *anon_vma = rmap_item->anon_vma;

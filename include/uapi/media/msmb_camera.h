@@ -23,6 +23,9 @@
 #define MSM_CAM_V4L2_IOCTL_NOTIFY_DEBUG \
 	_IOW('V', BASE_VIDIOC_PRIVATE + 34, struct msm_v4l2_event_data)
 
+#define MSM_CAM_V4L2_IOCTL_DAEMON_DISABLED \
+	_IOW('V', BASE_VIDIOC_PRIVATE + 35, struct msm_v4l2_event_data)
+
 #define QCAMERA_DEVICE_GROUP_ID	1
 #define QCAMERA_VNODE_GROUP_ID	2
 #define MSM_CAMERA_NAME			"msm_camera"
@@ -45,7 +48,9 @@
 #define MSM_CAMERA_SUBDEV_SENSOR_INIT  14
 #define MSM_CAMERA_SUBDEV_OIS          15
 #define MSM_CAMERA_SUBDEV_FLASH        16
-#define MSM_CAMERA_SUBDEV_EXT          17
+#define MSM_CAMERA_SUBDEV_IR_LED       17
+#define MSM_CAMERA_SUBDEV_IR_CUT       18
+#define MSM_CAMERA_SUBDEV_EXT          19
 
 #define MSM_MAX_CAMERA_SENSORS  5
 

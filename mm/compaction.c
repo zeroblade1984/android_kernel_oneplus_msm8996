@@ -17,10 +17,6 @@
 #include <linux/balloon_compaction.h>
 #include <linux/page-isolation.h>
 #include <linux/kasan.h>
-#include <linux/fb.h>
-#include <linux/kthread.h>
-#include <linux/freezer.h>
-#include <linux/module.h>
 #include "internal.h"
 
 #ifdef CONFIG_COMPACTION
@@ -65,6 +61,7 @@ static void map_pages(struct list_head *list)
 		kasan_alloc_pages(page, 0);
 		arch_alloc_page(page, 0);
 		kernel_map_pages(page, 1, 1);
+		kasan_alloc_pages(page, 0);
 	}
 }
 
@@ -377,24 +374,6 @@ static unsigned long isolate_freepages_block(struct compact_control *cc,
 
 		if (!valid_page)
 			valid_page = page;
-
-		/*
-		 * For compound pages such as THP and hugetlbfs, we can save
-		 * potentially a lot of iterations if we skip them at once.
-		 * The check is racy, but we can consider only valid values
-		 * and the only danger is skipping too much.
-		 */
-		if (PageCompound(page)) {
-			unsigned int comp_order = compound_order(page);
-
-			if (likely(comp_order < MAX_ORDER)) {
-				blockpfn += (1UL << comp_order) - 1;
-				cursor += (1UL << comp_order) - 1;
-			}
-
-			goto isolate_fail;
-		}
-
 		if (!PageBuddy(page))
 			goto isolate_fail;
 
@@ -426,23 +405,18 @@ static unsigned long isolate_freepages_block(struct compact_control *cc,
 
 		/* Found a free page, break it into order-0 pages */
 		isolated = split_free_page(page);
-		if (!isolated)
-			break;
-
 		total_isolated += isolated;
-		cc->nr_freepages += isolated;
 		for (i = 0; i < isolated; i++) {
 			list_add(&page->lru, freelist);
 			page++;
 		}
-		if (!strict && cc->nr_migratepages <= cc->nr_freepages) {
-			blockpfn += isolated;
-			break;
+
+		/* If a page was split, advance to the end of it */
+		if (isolated) {
+			blockpfn += isolated - 1;
+			cursor += isolated - 1;
+			continue;
 		}
-		/* Advance to the end of split page */
-		blockpfn += isolated - 1;
-		cursor += isolated - 1;
-		continue;
 
 isolate_fail:
 		if (strict)
@@ -451,16 +425,6 @@ isolate_fail:
 			continue;
 
 	}
-
-	if (locked)
-		spin_unlock_irqrestore(&cc->zone->lock, flags);
-
-	/*
-	 * There is a tiny chance that we have read bogus compound_order(),
-	 * so be careful to not go outside of the pageblock.
-	 */
-	if (unlikely(blockpfn > end_pfn))
-		blockpfn = end_pfn;
 
 	/* Record how far we have got within the block */
 	*start_pfn = blockpfn;
@@ -474,6 +438,9 @@ isolate_fail:
 	 */
 	if (strict && blockpfn < end_pfn)
 		total_isolated = 0;
+
+	if (locked)
+		spin_unlock_irqrestore(&cc->zone->lock, flags);
 
 	/* Update the pageblock-skip if the whole pageblock was scanned */
 	if (blockpfn == end_pfn)
@@ -845,8 +812,16 @@ isolate_migratepages_range(struct compact_control *cc, unsigned long start_pfn,
 		pfn = isolate_migratepages_block(cc, pfn, block_end_pfn,
 							ISOLATE_UNEVICTABLE);
 
-		if (!pfn)
+		/*
+		 * In case of fatal failure, release everything that might
+		 * have been isolated in the previous iteration, and signal
+		 * the failure back to caller.
+		 */
+		if (!pfn) {
+			putback_movable_pages(&cc->migratepages);
+			cc->nr_migratepages = 0;
 			break;
+		}
 
 		if (cc->nr_migratepages == COMPACT_CLUSTER_MAX)
 			break;
@@ -925,12 +900,7 @@ static void isolate_freepages(struct compact_control *cc)
 
 		/* Found a block suitable for isolating free pages from. */
 		isolated = isolate_freepages_block(cc, &isolate_start_pfn,
-						block_end_pfn, freelist, false);
-		/* If isolation failed early, do not continue needlessly */
-		if (!isolated && isolate_start_pfn < block_end_pfn &&
-		    cc->nr_migratepages > cc->nr_freepages)
-			break;
-
+					block_end_pfn, freelist, false);
 		nr_freepages += isolated;
 
 		/*
@@ -1466,77 +1436,6 @@ break_loop:
 	return rc;
 }
 
-static struct compact_thread {
-	wait_queue_head_t waitqueue;
-	struct task_struct *task;
-	struct timer_list timer;
-	atomic_t should_run;
-} compact_thread;
-
-static uint compact_interval_sec = 1800;
-module_param_named(interval, compact_interval_sec, uint,
-			S_IRUGO | S_IWUSR | S_IWGRP);
-
-static void compact_nodes(void);
-
-static int compact_thread_should_run(void)
-{
-	return atomic_read(&compact_thread.should_run);
-}
-
-static void compact_thread_wakeup(void)
-{
-	atomic_set(&compact_thread.should_run, 1);
-	wake_up(&compact_thread.waitqueue);
-}
-
-static void compact_thread_timer_func(unsigned long data)
-{
-	compact_thread_wakeup();
-	mod_timer(&compact_thread.timer,
-			jiffies + (HZ * compact_interval_sec));
-}
-
-static int compact_thread_func(void *data)
-{
-	set_freezable();
-	for (;;) {
-		wait_event_freezable(compact_thread.waitqueue,
-				compact_thread_should_run());
-		if (compact_thread_should_run()) {
-			compact_nodes();
-			atomic_set(&compact_thread.should_run, 0);
-		}
-	}
-	return 0;
-}
-
-static int compact_notifier(struct notifier_block *self,
-				unsigned long event, void *data)
-{
-	struct fb_event *evdata = (struct fb_event *)data;
-
-	if ((event == FB_EVENT_BLANK) && evdata && evdata->data) {
-		int blank = *(int *)evdata->data;
-
-		if (blank == FB_BLANK_POWERDOWN) {
-			del_timer_sync(&compact_thread.timer);
-			compact_thread_wakeup();
-			return NOTIFY_OK;
-		} else if (blank == FB_BLANK_UNBLANK) {
-			if (!timer_pending(&compact_thread.timer))
-				mod_timer(&compact_thread.timer, jiffies +
-						(HZ * compact_interval_sec));
-			return NOTIFY_OK;
-		}
-	}
-	return NOTIFY_DONE;
-}
-
-static struct notifier_block compact_notifier_block = {
-	.notifier_call = compact_notifier,
-	.priority = -1,
-};
 
 /* Compact all zones within a node */
 static void __compact_pgdat(pg_data_t *pgdat, struct compact_control *cc)
@@ -1656,20 +1555,4 @@ void compaction_unregister_node(struct node *node)
 }
 #endif /* CONFIG_SYSFS && CONFIG_NUMA */
 
-static int  __init mem_compaction_init(void)
-{
-	struct sched_param param = { .sched_priority = 0 };
-
-	init_timer_deferrable(&compact_thread.timer);
-	compact_thread.timer.function = compact_thread_timer_func;
-	init_waitqueue_head(&compact_thread.waitqueue);
-	compact_thread.task = kthread_run(compact_thread_func, NULL,
-				"%s", "kcompact");
-	if (!IS_ERR(compact_thread.task))
-		sched_setscheduler(compact_thread.task, SCHED_IDLE, &param);
-
-	fb_register_client(&compact_notifier_block);
-	return 0;
-}
-late_initcall(mem_compaction_init);
 #endif /* CONFIG_COMPACTION */

@@ -215,6 +215,7 @@ static ssize_t panel_debug_base_reg_read(struct file *file,
 	struct mdss_panel_data *panel_data = ctl->panel_data;
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = container_of(panel_data,
 					struct mdss_dsi_ctrl_pdata, panel_data);
+	int rc = -EFAULT;
 
 	if (!dbg)
 		return -ENODEV;
@@ -233,7 +234,8 @@ static ssize_t panel_debug_base_reg_read(struct file *file,
 
 	if (!rx_buf || !panel_reg_buf) {
 		pr_err("not enough memory to hold panel reg dump\n");
-		return -ENOMEM;
+		rc = -ENOMEM;
+		goto read_reg_fail;
 	}
 
 	if (mdata->debug_inf.debug_enable_clock)
@@ -268,8 +270,7 @@ static ssize_t panel_debug_base_reg_read(struct file *file,
 read_reg_fail:
 	kfree(rx_buf);
 	kfree(panel_reg_buf);
-	return -EFAULT;
-
+	return rc;
 }
 
 static const struct file_operations panel_off_fops = {
@@ -1191,9 +1192,6 @@ int mdss_debugfs_init(struct mdss_data_type *mdata)
 	if (mdss_create_xlog_debug(mdd))
 		goto err;
 
-	if (mdss_create_frc_debug(mdd))
-		goto err;
-
 	mdata->debug_inf.debug_data = mdd;
 
 	return 0;
@@ -1319,6 +1317,18 @@ static inline struct mdss_mdp_misr_map *mdss_misr_get_map(u32 block_id,
 						MDSS_MDP_INTF_CMD_MISR_CTRL;
 					value_reg = intf_base +
 					    MDSS_MDP_INTF_CMD_MISR_SIGNATURE;
+
+					/*
+					 * extra offset required for
+					 * cmd misr in 8996
+					 */
+					if (IS_MDSS_MAJOR_MINOR_SAME(
+						  mdata->mdp_rev,
+						  MDSS_MDP_HW_REV_107)) {
+						ctrl_reg += 0x8;
+						value_reg += 0x8;
+					}
+
 				} else {
 					ctrl_reg = intf_base +
 						MDSS_MDP_INTF_MISR_CTRL;
@@ -1349,7 +1359,7 @@ static inline struct mdss_mdp_misr_map *mdss_misr_get_map(u32 block_id,
 		return NULL;
 	}
 
-	pr_debug("MISR Module(%d) CTRL(0x%x) SIG(0x%x) intf_base(0x%p)\n",
+	pr_debug("MISR Module(%d) CTRL(0x%x) SIG(0x%x) intf_base(0x%pK)\n",
 			block_id, map->ctrl_reg, map->value_reg, intf_base);
 	return map;
 }
@@ -1389,6 +1399,9 @@ void mdss_misr_disable(struct mdss_data_type *mdata,
 	map = mdss_misr_get_map(req->block_id, ctl, mdata,
 		ctl->is_video_mode);
 
+	if (!map)
+		return;
+
 	/* clear the map data */
 	memset(map->crc_ping, 0, sizeof(map->crc_ping));
 	memset(map->crc_pong, 0, sizeof(map->crc_pong));
@@ -1419,7 +1432,7 @@ int mdss_misr_set(struct mdss_data_type *mdata,
 	bool use_mdp_up_misr = false;
 
 	if (!mdata || !req || !ctl) {
-		pr_err("Invalid input params: mdata = %p req = %p ctl = %p",
+		pr_err("Invalid input params: mdata = %pK req = %pK ctl = %pK",
 			mdata, req, ctl);
 		return -EINVAL;
 	}
@@ -1499,8 +1512,9 @@ int mdss_misr_set(struct mdss_data_type *mdata,
 
 		writel_relaxed(config,
 				mdata->mdp_base + map->ctrl_reg);
-		pr_debug("MISR_CTRL = 0x%x",
-				readl_relaxed(mdata->mdp_base + map->ctrl_reg));
+		pr_debug("MISR_CTRL=0x%x [base:0x%pK reg:0x%x config:0x%x]\n",
+				readl_relaxed(mdata->mdp_base + map->ctrl_reg),
+				mdata->mdp_base, map->ctrl_reg, config);
 	}
 	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
 	return 0;
@@ -1529,6 +1543,9 @@ int mdss_misr_get(struct mdss_data_type *mdata,
 	u32 status;
 	int ret = -1;
 	int i;
+
+	pr_debug("req[block:%d frame:%d op_mode:%d]\n",
+		resp->block_id, resp->frame_count, resp->crc_op_mode);
 
 	map = mdss_misr_get_map(resp->block_id, ctl, mdata,
 		is_video_mode);

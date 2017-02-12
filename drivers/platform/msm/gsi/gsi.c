@@ -21,7 +21,7 @@
 #include "gsi_reg.h"
 
 #define GSI_CMD_TIMEOUT (5*HZ)
-#define GSI_STOP_CMD_TIMEOUT_MS 1
+#define GSI_STOP_CMD_TIMEOUT_MS 10
 #define GSI_MAX_CH_LOW_WEIGHT 15
 #define GSI_MHI_ER_START 10
 #define GSI_MHI_ER_END 16
@@ -91,26 +91,6 @@ static void __gsi_config_gen_irq(int ee, uint32_t mask, uint32_t val)
 			GSI_EE_n_CNTXT_GSI_IRQ_EN_OFFS(ee));
 	gsi_writel((curr & ~mask) | (val & mask), gsi_ctx->base +
 			GSI_EE_n_CNTXT_GSI_IRQ_EN_OFFS(ee));
-}
-
-static void __gsi_config_inter_ee_ch_irq(int ee, uint32_t mask, uint32_t val)
-{
-	uint32_t curr;
-
-	curr = gsi_readl(gsi_ctx->base +
-			GSI_INTER_EE_n_SRC_GSI_CH_IRQ_MSK_OFFS(ee));
-	gsi_writel((curr & ~mask) | (val & mask), gsi_ctx->base +
-			GSI_INTER_EE_n_SRC_GSI_CH_IRQ_MSK_OFFS(ee));
-}
-
-static void __gsi_config_inter_ee_evt_irq(int ee, uint32_t mask, uint32_t val)
-{
-	uint32_t curr;
-
-	curr = gsi_readl(gsi_ctx->base +
-			GSI_INTER_EE_n_SRC_EV_CH_IRQ_MSK_OFFS(ee));
-	gsi_writel((curr & ~mask) | (val & mask), gsi_ctx->base +
-			GSI_INTER_EE_n_SRC_EV_CH_IRQ_MSK_OFFS(ee));
 }
 
 static void gsi_handle_ch_ctrl(int ee)
@@ -456,7 +436,7 @@ check_again:
 		}
 	}
 
-	gsi_writel(ch, gsi_ctx->base +
+	gsi_writel(ch & msk, gsi_ctx->base +
 			GSI_EE_n_CNTXT_SRC_IEOB_IRQ_CLR_OFFS(ee));
 }
 
@@ -663,6 +643,13 @@ int gsi_register_device(struct gsi_per_props *props, unsigned long *dev_hdl)
 			GSIERR("failed to register isr for %u\n", props->irq);
 			return -GSI_STATUS_ERROR;
 		}
+
+		res = enable_irq_wake(props->irq);
+		if (res)
+			GSIERR("failed to enable wake irq %u\n", props->irq);
+		else
+			GSIERR("GSI irq is wake enabled %u\n", props->irq);
+
 	} else {
 		GSIERR("do not support interrupt type %u\n", props->intr);
 		return -GSI_STATUS_UNSUPPORTED_OP;
@@ -684,7 +671,10 @@ int gsi_register_device(struct gsi_per_props *props, unsigned long *dev_hdl)
 	/* only support 16 un-reserved + 7 reserved event virtual IDs */
 	gsi_ctx->evt_bmap = ~0x7E03FF;
 
-	/* enable all interrupts but GSI_BREAK_POINT */
+	/*
+	 * enable all interrupts but GSI_BREAK_POINT.
+	 * Inter EE commands / interrupt are no supported.
+	 */
 	__gsi_config_type_irq(props->ee, ~0, ~0);
 	__gsi_config_ch_irq(props->ee, ~0, ~0);
 	__gsi_config_evt_irq(props->ee, ~0, ~0);
@@ -692,8 +682,6 @@ int gsi_register_device(struct gsi_per_props *props, unsigned long *dev_hdl)
 	__gsi_config_glob_irq(props->ee, ~0, ~0);
 	__gsi_config_gen_irq(props->ee, ~0,
 		~GSI_EE_n_CNTXT_GSI_IRQ_CLR_GSI_BREAK_POINT_BMSK);
-	__gsi_config_inter_ee_ch_irq(props->ee, ~0, ~0);
-	__gsi_config_inter_ee_evt_irq(props->ee, ~0, ~0);
 
 	gsi_writel(props->intr, gsi_ctx->base +
 			GSI_EE_n_CNTXT_INTSET_OFFS(gsi_ctx->per.ee));
@@ -791,8 +779,6 @@ int gsi_deregister_device(unsigned long dev_hdl, bool force)
 	__gsi_config_ieob_irq(gsi_ctx->per.ee, ~0, 0);
 	__gsi_config_glob_irq(gsi_ctx->per.ee, ~0, 0);
 	__gsi_config_gen_irq(gsi_ctx->per.ee, ~0, 0);
-	__gsi_config_inter_ee_ch_irq(gsi_ctx->per.ee, ~0, 0);
-	__gsi_config_inter_ee_evt_irq(gsi_ctx->per.ee, ~0, 0);
 
 	devm_free_irq(gsi_ctx->dev, gsi_ctx->per.irq, gsi_ctx);
 	devm_iounmap(gsi_ctx->dev, gsi_ctx->base);
@@ -2156,7 +2142,8 @@ int gsi_queue_xfer(unsigned long chan_hdl, uint16_t num_xfers,
 {
 	struct gsi_chan_ctx *ctx;
 	uint16_t free;
-	struct gsi_tre *tre;
+	struct gsi_tre tre;
+	struct gsi_tre *tre_ptr;
 	uint16_t idx;
 	uint64_t wp_rollback;
 	int i;
@@ -2198,25 +2185,29 @@ int gsi_queue_xfer(unsigned long chan_hdl, uint16_t num_xfers,
 
 	wp_rollback = ctx->ring.wp_local;
 	for (i = 0; i < num_xfers; i++) {
-		idx = gsi_find_idx_from_addr(&ctx->ring, ctx->ring.wp_local);
-		tre = (struct gsi_tre *)(ctx->ring.base_va +
-				idx * ctx->ring.elem_sz);
-		memset(tre, 0, sizeof(*tre));
-		tre->buffer_ptr = xfer[i].addr;
-		tre->buf_len = xfer[i].len;
+		memset(&tre, 0, sizeof(tre));
+		tre.buffer_ptr = xfer[i].addr;
+		tre.buf_len = xfer[i].len;
 		if (xfer[i].type == GSI_XFER_ELEM_DATA) {
-			tre->re_type = GSI_RE_XFER;
+			tre.re_type = GSI_RE_XFER;
 		} else if (xfer[i].type == GSI_XFER_ELEM_IMME_CMD) {
-			tre->re_type = GSI_RE_IMMD_CMD;
+			tre.re_type = GSI_RE_IMMD_CMD;
 		} else {
 			GSIERR("chan_hdl=%lu bad RE type=%u\n", chan_hdl,
 				xfer[i].type);
 			break;
 		}
-		tre->bei = (xfer[i].flags & GSI_XFER_FLAG_BEI) ? 1 : 0;
-		tre->ieot = (xfer[i].flags & GSI_XFER_FLAG_EOT) ? 1 : 0;
-		tre->ieob = (xfer[i].flags & GSI_XFER_FLAG_EOB) ? 1 : 0;
-		tre->chain = (xfer[i].flags & GSI_XFER_FLAG_CHAIN) ? 1 : 0;
+		tre.bei = (xfer[i].flags & GSI_XFER_FLAG_BEI) ? 1 : 0;
+		tre.ieot = (xfer[i].flags & GSI_XFER_FLAG_EOT) ? 1 : 0;
+		tre.ieob = (xfer[i].flags & GSI_XFER_FLAG_EOB) ? 1 : 0;
+		tre.chain = (xfer[i].flags & GSI_XFER_FLAG_CHAIN) ? 1 : 0;
+
+		idx = gsi_find_idx_from_addr(&ctx->ring, ctx->ring.wp_local);
+		tre_ptr = (struct gsi_tre *)(ctx->ring.base_va +
+				idx * ctx->ring.elem_sz);
+
+		/* write the TRE to ring */
+		*tre_ptr = tre;
 		ctx->user_data[idx] = xfer[i].xfer_user_data;
 		gsi_incr_ring_wp(&ctx->ring);
 	}

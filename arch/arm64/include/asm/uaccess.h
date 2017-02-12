@@ -24,7 +24,10 @@
 #include <linux/string.h>
 #include <linux/thread_info.h>
 
+#include <asm/alternative.h>
+#include <asm/cpufeature.h>
 #include <asm/ptrace.h>
+#include <asm/sysreg.h>
 #include <asm/errno.h>
 #include <asm/memory.h>
 #include <asm/compiler.h>
@@ -131,6 +134,8 @@ static inline void set_fs(mm_segment_t fs)
 do {									\
 	unsigned long __gu_val;						\
 	__chk_user_ptr(ptr);						\
+	asm(ALTERNATIVE("nop", SET_PSTATE_PAN(0), ARM64_HAS_PAN,	\
+			CONFIG_ARM64_PAN));				\
 	switch (sizeof(*(ptr))) {					\
 	case 1:								\
 		__get_user_asm("ldrb", "%w", __gu_val, (ptr), (err));	\
@@ -147,7 +152,9 @@ do {									\
 	default:							\
 		BUILD_BUG();						\
 	}								\
-	(x) = (__typeof__(*(ptr)))__gu_val;				\
+	(x) = (__force __typeof__(*(ptr)))__gu_val;			\
+	asm(ALTERNATIVE("nop", SET_PSTATE_PAN(1), ARM64_HAS_PAN,	\
+			CONFIG_ARM64_PAN));				\
 } while (0)
 
 #define __get_user(x, ptr)						\
@@ -194,6 +201,8 @@ do {									\
 do {									\
 	__typeof__(*(ptr)) __pu_val = (x);				\
 	__chk_user_ptr(ptr);						\
+	asm(ALTERNATIVE("nop", SET_PSTATE_PAN(0), ARM64_HAS_PAN,	\
+			CONFIG_ARM64_PAN));				\
 	switch (sizeof(*(ptr))) {					\
 	case 1:								\
 		__put_user_asm("strb", "%w", __pu_val, (ptr), (err));	\
@@ -210,6 +219,8 @@ do {									\
 	default:							\
 		BUILD_BUG();						\
 	}								\
+	asm(ALTERNATIVE("nop", SET_PSTATE_PAN(1), ARM64_HAS_PAN,	\
+			CONFIG_ARM64_PAN));				\
 } while (0)
 
 #define __put_user(x, ptr)						\
@@ -236,39 +247,24 @@ do {									\
 		-EFAULT;						\
 })
 
-extern unsigned long __must_check __arch_copy_from_user(void *to, const void __user *from, unsigned long n);
-extern unsigned long __must_check __arch_copy_to_user(void __user *to, const void *from, unsigned long n);
+extern unsigned long __must_check __copy_from_user(void *to, const void __user *from, unsigned long n);
+extern unsigned long __must_check __copy_to_user(void __user *to, const void *from, unsigned long n);
 extern unsigned long __must_check __copy_in_user(void __user *to, const void __user *from, unsigned long n);
 extern unsigned long __must_check __clear_user(void __user *addr, unsigned long n);
 
-static inline unsigned long __must_check __copy_from_user(void *to, const void __user *from, unsigned long n)
-{
-	check_object_size(to, n, false);
-	return __arch_copy_from_user(to, from, n);
-}
-
-static inline unsigned long __must_check __copy_to_user(void __user *to, const void *from, unsigned long n)
-{
-	check_object_size(from, n, true);
-	return __arch_copy_to_user(to, from, n);
-}
-
 static inline unsigned long __must_check copy_from_user(void *to, const void __user *from, unsigned long n)
 {
-	if (access_ok(VERIFY_READ, from, n)) {
-		check_object_size(to, n, false);
-		n = __arch_copy_from_user(to, from, n);
-	} else /* security hole - plug it */
+	if (access_ok(VERIFY_READ, from, n))
+		n = __copy_from_user(to, from, n);
+	else /* security hole - plug it */
 		memset(to, 0, n);
 	return n;
 }
 
 static inline unsigned long __must_check copy_to_user(void __user *to, const void *from, unsigned long n)
 {
-	if (access_ok(VERIFY_WRITE, to, n)) {
-		check_object_size(from, n, true);
-		n = __arch_copy_to_user(to, from, n);
-	}
+	if (access_ok(VERIFY_WRITE, to, n))
+		n = __copy_to_user(to, from, n);
 	return n;
 }
 

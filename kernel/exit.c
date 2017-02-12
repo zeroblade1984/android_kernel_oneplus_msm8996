@@ -650,7 +650,7 @@ static void check_stack_usage(void)
 	static DEFINE_SPINLOCK(low_water_lock);
 	static int lowest_to_date = THREAD_SIZE;
 	unsigned long free;
-        int islower = false; 
+	int islower = false;
 
 	free = stack_not_used(current);
 
@@ -660,13 +660,15 @@ static void check_stack_usage(void)
 	spin_lock(&low_water_lock);
 	if (free < lowest_to_date) {
 		lowest_to_date = free;
-                islower = true;
+		islower = true;
 	}
 	spin_unlock(&low_water_lock);
-        if(islower){
-	       pr_warn("%s (%d) used greatest stack depth: %lu bytes left\n",
-		      current->comm, task_pid_nr(current), free);
-        }
+
+	if (islower) {
+		printk(KERN_WARNING "%s (%d) used greatest stack depth: "
+				"%lu bytes left\n",
+				current->comm, task_pid_nr(current), free);
+	}
 }
 #else
 static inline void check_stack_usage(void) {}
@@ -945,28 +947,17 @@ static int eligible_pid(struct wait_opts *wo, struct task_struct *p)
 		task_pid_type(p, wo->wo_type) == wo->wo_pid;
 }
 
-static int
-eligible_child(struct wait_opts *wo, bool ptrace, struct task_struct *p)
+static int eligible_child(struct wait_opts *wo, struct task_struct *p)
 {
 	if (!eligible_pid(wo, p))
 		return 0;
-
-	/*
-	 * Wait for all children (clone and not) if __WALL is set or
-	 * if it is traced by us.
-	 */
-	if (ptrace || (wo->wo_flags & __WALL))
-		return 1;
-
-	/*
-	 * Otherwise, wait for clone children *only* if __WCLONE is set;
-	 * otherwise, wait for non-clone children *only*.
-	 *
-	 * Note: a "clone" child here is one that reports to its parent
-	 * using a signal other than SIGCHLD, or a non-leader thread which
-	 * we can only see if it is traced by us.
-	 */
-	if ((p->exit_signal != SIGCHLD) ^ !!(wo->wo_flags & __WCLONE))
+	/* Wait for all children (clone and not) if __WALL is set;
+	 * otherwise, wait for clone children *only* if __WCLONE is
+	 * set; otherwise, wait for non-clone children *only*.  (Note:
+	 * A "clone" child here is one that reports to its parent
+	 * using a signal other than SIGCHLD.) */
+	if (((p->exit_signal != SIGCHLD) ^ !!(wo->wo_flags & __WCLONE))
+	    && !(wo->wo_flags & __WALL))
 		return 0;
 
 	return 1;
@@ -1339,7 +1330,7 @@ static int wait_consider_task(struct wait_opts *wo, int ptrace,
 	if (unlikely(exit_state == EXIT_DEAD))
 		return 0;
 
-	ret = eligible_child(wo, ptrace, p);
+	ret = eligible_child(wo, p);
 	if (!ret)
 		return ret;
 

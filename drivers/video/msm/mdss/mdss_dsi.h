@@ -148,6 +148,7 @@ enum dsi_pm_type {
 #define CTRL_STATE_PANEL_INIT		BIT(0)
 #define CTRL_STATE_MDP_ACTIVE		BIT(1)
 #define CTRL_STATE_DSI_ACTIVE		BIT(2)
+#define CTRL_STATE_PANEL_LP		BIT(3)
 
 #define DSI_NON_BURST_SYNCH_PULSE	0
 #define DSI_NON_BURST_SYNCH_EVENT	1
@@ -390,6 +391,7 @@ struct dsi_err_container {
 #define MDSS_DSI_COMMAND_COMPRESSION_MODE_CTRL	0x02a8
 #define MDSS_DSI_COMMAND_COMPRESSION_MODE_CTRL2	0x02ac
 #define MDSS_DSI_COMMAND_COMPRESSION_MODE_CTRL3	0x02b0
+#define MSM_DBA_CHIP_NAME_MAX_LEN				20
 
 struct mdss_dsi_ctrl_pdata {
 	int ndx;	/* panel_num */
@@ -466,8 +468,11 @@ struct mdss_dsi_ctrl_pdata {
 	struct dsi_panel_cmds post_panel_on_cmds;
 	struct dsi_panel_cmds off_cmds;
 	struct dsi_panel_cmds status_cmds;
-	u32 status_cmds_rlen;
+	u32 *status_valid_params;
+	u32 *status_cmds_rlen;
 	u32 *status_value;
+	unsigned char *return_buf;
+	u32 groups; /* several alternative values to compare */
 	u32 status_error_count;
 	u32 max_status_error_count;
 
@@ -527,26 +532,24 @@ struct mdss_dsi_ctrl_pdata {
 	int m_mdp_vote_cnt;
 	/* debugfs structure */
 	struct mdss_dsi_debugfs_info *debugfs_info;
-	int lcd_power_1v8_en; //guozhiming modify for lcd 2015-10-15
-	int esd_te_gpio;
-	struct delayed_work techeck_work;
-	struct completion te_comp;
-	int acl_mode;
-	struct dsi_err_container err_cont;
-    int  max_brightness_level;
-    char high_brightness_panel;
 
-	bool ds_registered;
+	struct dsi_err_container err_cont;
 
 	struct kobject *kobj;
 	int fb_node;
 
+	/* DBA data */
 	struct workqueue_struct *workq;
 	struct delayed_work dba_work;
+	char bridge_name[MSM_DBA_CHIP_NAME_MAX_LEN];
+	uint32_t bridge_index;
+	bool ds_registered;
+
 	bool timing_db_mode;
 	bool update_phy_timing; /* flag to recalculate PHY timings */
 
 	bool phy_power_off;
+	int lcd_power_1v8_en;
 };
 
 struct dsi_status_data {

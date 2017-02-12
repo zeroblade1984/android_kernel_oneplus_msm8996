@@ -2,8 +2,8 @@
 # Makefile for nfc devices
 #
 
-#obj-$(CONFIG_NFC_PN544)		+= pn544/
-obj-y		+= pn544/
+obj-$(CONFIG_NFC_PN544)		+= pn544/
+obj-$(CONFIG_NFC_PN544_OP)		+= pn544_op/
 obj-$(CONFIG_NFC_MICROREAD)	+= microread/
 obj-$(CONFIG_NFC_PN533)		+= pn533.o
 obj-$(CONFIG_NFC_WILINK)	+= nfcwilink.o

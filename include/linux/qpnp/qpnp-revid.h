@@ -177,11 +177,17 @@
 /* PMICOBALT */
 #define PMICOBALT_SUBTYPE	0x15
 
+/* PM8005 */
+#define PM8005_SUBTYPE		0x18
+
 /* PM8937 */
 #define PM8937_SUBTYPE		0x19
 
 /* PMI8937 */
 #define PMI8937_SUBTYPE		0x37
+
+/* PMI8940 */
+#define PMI8940_SUBTYPE		0x40
 
 struct pmic_revid_data {
 	u8		rev1;

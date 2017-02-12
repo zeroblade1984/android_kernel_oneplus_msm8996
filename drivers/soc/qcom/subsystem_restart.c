@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -41,8 +41,6 @@
 #include <asm/current.h>
 
 #include "peripheral-loader.h"
-
-#include <linux/proc_fs.h>
 
 #define DISABLE_SSR 0x9889deed
 /* If set to 0x9889deed, call to subsystem_restart_dev() returns immediately */
@@ -601,10 +599,11 @@ static void subsystem_shutdown(struct subsys_device *dev, void *data)
 {
 	const char *name = dev->desc->name;
 
-	pr_info("[%p]: Shutting down %s\n", current, name);
+	pr_info("[%s:%d]: Shutting down %s\n",
+			current->comm, current->pid, name);
 	if (dev->desc->shutdown(dev->desc, true) < 0)
-		panic("subsys-restart: [%p]: Failed to shutdown %s!",
-			current, name);
+		panic("subsys-restart: [%s:%d]: Failed to shutdown %s!",
+			current->comm, current->pid, name);
 	dev->crash_count++;
 	subsys_set_state(dev, SUBSYS_OFFLINE);
 	disable_all_irqs(dev);
@@ -616,7 +615,8 @@ static void subsystem_ramdump(struct subsys_device *dev, void *data)
 
 	if (dev->desc->ramdump)
 		if (dev->desc->ramdump(is_ramdump_enabled(dev), dev->desc) < 0)
-			pr_warn("%s[%p]: Ramdump failed.\n", name, current);
+			pr_warn("%s[%s:%d]: Ramdump failed.\n",
+				name, current->comm, current->pid);
 	dev->do_ramdump_on_put = false;
 }
 
@@ -631,13 +631,14 @@ static void subsystem_powerup(struct subsys_device *dev, void *data)
 	const char *name = dev->desc->name;
 	int ret;
 
-	pr_info("[%p]: Powering up %s\n", current, name);
+	pr_info("[%s:%d]: Powering up %s\n", current->comm, current->pid, name);
 	init_completion(&dev->err_ready);
 
 	if (dev->desc->powerup(dev->desc) < 0) {
 		notify_each_subsys_device(&dev, 1, SUBSYS_POWERUP_FAILURE,
 								NULL);
-		panic("[%p]: Powerup error: %s!", current, name);
+		panic("[%s:%d]: Powerup error: %s!",
+			current->comm, current->pid, name);
 	}
 	enable_all_irqs(dev);
 
@@ -645,8 +646,8 @@ static void subsystem_powerup(struct subsys_device *dev, void *data)
 	if (ret) {
 		notify_each_subsys_device(&dev, 1, SUBSYS_POWERUP_FAILURE,
 								NULL);
-		panic("[%p]: Timed out waiting for error ready: %s!",
-			current, name);
+		panic("[%s:%d]: Timed out waiting for error ready: %s!",
+			current->comm, current->pid, name);
 	}
 	subsys_set_state(dev, SUBSYS_ONLINE);
 	subsys_set_crash_status(dev, false);
@@ -669,132 +670,6 @@ static struct subsys_device *find_subsys(const char *str)
 			__find_subsys);
 	return dev ? to_subsys(dev) : NULL;
 }
-
-static int val = 0;
-
-static ssize_t proc_restart_level_all_read(struct file *p_file, char __user *puser_buf, size_t count, loff_t *p_offset)
-{
-	ssize_t len = 0;
-	len = copy_to_user(puser_buf, val?"1":"0", 1);
-	pr_info("the restart level switch is:%d\n", val);
-	return len;
-}
-
-static ssize_t proc_restart_level_all_write(struct file *p_file, const char __user *puser_buf,
-			   size_t count, loff_t *p_offset)
-{
-	char temp[1] = {0};
-	struct subsys_device *subsys;
-
-	if (copy_from_user(temp, puser_buf, 1))
-		return -EFAULT;
-
-	sscanf(temp, "%d", &val);
-
-	if (!strncasecmp(&temp[0], "0", 1)) {
-		subsys = find_subsys("venus");
-		if (!subsys)
-			return ENODEV;
-		subsys->restart_level = RESET_SUBSYS_COUPLED;
-
-		subsys = find_subsys("a530_zap");
-		if (!subsys)
-			return ENODEV;
-		subsys->restart_level = RESET_SUBSYS_COUPLED;
-
-		subsys = find_subsys("AR6320");
-		if (!subsys)
-			return ENODEV;
-		subsys->restart_level = RESET_SUBSYS_COUPLED;
-
-		subsys = find_subsys("adsp");
-		if (!subsys)
-			return ENODEV;
-		subsys->restart_level = RESET_SUBSYS_COUPLED;
-
-		subsys = find_subsys("slpi");
-		if (!subsys)
-			return ENODEV;
-		subsys->restart_level = RESET_SUBSYS_COUPLED;
-
-		subsys = find_subsys("modem");
-		if (!subsys)
-			return ENODEV;
-		subsys->restart_level = RESET_SUBSYS_COUPLED;
-	}else if (!strncasecmp(&temp[0], "1", 1)){
-		subsys = find_subsys("venus");
-		if (!subsys)
-			return ENODEV;
-		subsys->restart_level = RESET_SOC;
-
-		subsys = find_subsys("a530_zap");
-		if (!subsys)
-			return ENODEV;
-		subsys->restart_level = RESET_SOC;
-
-		subsys = find_subsys("AR6320");
-		if (!subsys)
-			return ENODEV;
-		subsys->restart_level = RESET_SOC;
-
-		subsys = find_subsys("adsp");
-		if (!subsys)
-			return ENODEV;
-		subsys->restart_level = RESET_SOC;
-
-		subsys = find_subsys("slpi");
-		if (!subsys)
-			return ENODEV;
-		subsys->restart_level = RESET_SOC;
-
-		subsys = find_subsys("modem");
-		if (!subsys)
-			return ENODEV;
-		subsys->restart_level = RESET_SOC;
-	}
-
-	pr_info("write the restart level switch to :%d\n", val);
-	return count;
-}
-
-static const struct file_operations restart_level_all_operations = {
-    .read = proc_restart_level_all_read,
-	.write = proc_restart_level_all_write,
-};
-
-static void init_restart_level_all_node( void )
-{
-	if (!proc_create("restart_level_all", 0644, NULL,
-			 &restart_level_all_operations)){
-		pr_err("%s : Failed to register proc interface\n", __func__);
-	}
-}
-//changhua add a interface to restart modem in kernel
-static int restart_level = 0;//system original val
-int op_restart_modem(void)
-{
-    struct subsys_device *subsys = find_subsys("modem");
-	if (!subsys)
-		return -ENODEV;
-    restart_level = subsys->restart_level;
-	subsys->restart_level = RESET_SUBSYS_COUPLED;
-    #if 1
-    if (subsystem_restart("modem") == -ENODEV) {
-        pr_err("%s: SSR call failed\n", __func__);
-    }
-    #else
-    //shutdown
-    subsystem_put(subsys);
-    //boot
-    if (IS_ERR(subsystem_get("modem"))) {
-        pr_err("Peripheral Loader failed on modem.\n");
-    }
-    #endif
-    subsys->restart_level = restart_level;
-    return 0;
-}
-EXPORT_SYMBOL(op_restart_modem);
-
 
 static int subsys_start(struct subsys_device *subsys)
 {
@@ -1059,8 +934,8 @@ static void subsystem_restart_wq_func(struct work_struct *work)
 	 */
 	mutex_lock(&soc_order_reg_lock);
 
-	pr_debug("[%p]: Starting restart sequence for %s\n", current,
-			desc->name);
+	pr_debug("[%s:%d]: Starting restart sequence for %s\n",
+			current->comm, current->pid, desc->name);
 	notify_each_subsys_device(list, count, SUBSYS_BEFORE_SHUTDOWN, NULL);
 	for_each_subsys_device(list, count, NULL, subsystem_shutdown);
 	notify_each_subsys_device(list, count, SUBSYS_AFTER_SHUTDOWN, NULL);
@@ -1081,8 +956,8 @@ static void subsystem_restart_wq_func(struct work_struct *work)
 	for_each_subsys_device(list, count, NULL, subsystem_powerup);
 	notify_each_subsys_device(list, count, SUBSYS_AFTER_POWERUP, NULL);
 
-	pr_info("[%p]: Restart sequence for %s completed.\n",
-			current, desc->name);
+	pr_info("[%s:%d]: Restart sequence for %s completed.\n",
+			current->comm, current->pid, desc->name);
 
 	mutex_unlock(&soc_order_reg_lock);
 	mutex_unlock(&track->lock);
@@ -1944,8 +1819,6 @@ static int __init subsys_restart_init(void)
 			&panic_nb);
 	if (ret)
 		goto err_soc;
-
-	init_restart_level_all_node();
 
 	return 0;
 

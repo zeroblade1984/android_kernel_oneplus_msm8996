@@ -397,7 +397,7 @@
 	qcom,mdss-dsi-bl-max-level = <4095>;
 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
 	qcom,partial-update-enabled;
-	qcom,panel-roi-alignment = <720 128 720 64 720 64>;
+	qcom,panel-roi-alignment = <720 128 720 128 1440 128>;
 	qcom,panel-allow-phy-poweroff;
 };
 
@@ -413,6 +413,16 @@
 	qcom,mdss-dsi-bl-min-level = <1>;
 	qcom,mdss-dsi-bl-max-level = <4095>;
 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+};
+
+&dsi_sharp_4k_dsc_cmd {
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <4095>;
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,partial-update-enabled;
+	/* panel supports slice height of 8/16/32/48/3840 */
+	qcom,panel-roi-alignment = <1080 8 1080 8 1080 8>;
 };
 
 &dsi_nt35597_dsc_video {
@@ -532,7 +542,7 @@
 		qcom,vin-sel = <2>;		/* S4 1.8V */
 		qcom,src-sel = <0>;		/* Constant */
 		qcom,master-en = <1>;		/* Enable GPIO */
-		qcom,invert = <0>;
+		qcom,invert = <1>;
 		status = "okay";
 	};
 };
@@ -653,18 +663,9 @@
 
 		vol_up {
 			label = "volume_up";
-			gpios = <&pm8994_gpios 3 0x1>;
-			linux,input-type = <1>;
-			linux,code = <115>;
-			gpio-key,wakeup;
-			debounce-interval = <15>;
-		};
-
-		vol_down {
-			label = "volume_down";
 			gpios = <&pm8994_gpios 2 0x1>;
 			linux,input-type = <1>;
-			linux,code = <114>;
+			linux,code = <115>;
 			gpio-key,wakeup;
 			debounce-interval = <15>;
 		};

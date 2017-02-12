@@ -729,17 +729,18 @@ static int dwc3_ep0_set_isoch_delay(struct dwc3 *dwc, struct usb_ctrlrequest *ct
 
 	return 0;
 }
+
 static struct notify_usb_enumeration_status *usb_enumeration_status = NULL;
 
 void regsister_notify_usb_enumeration_status(struct notify_usb_enumeration_status *status)
 {
-       if (usb_enumeration_status) {
-               usb_enumeration_status = status;
-               pr_err("usb_enumeration_status %s multiple usb_enumeration_status called\n",
-                               __func__);
-       } else {
-               usb_enumeration_status = status;
-       }
+	if (usb_enumeration_status) {
+		usb_enumeration_status = status;
+		pr_err("usb_enumeration_status %s multiple usb_enumeration_status called\n",
+				__func__);
+	} else {
+		usb_enumeration_status = status;
+	}
 }
 EXPORT_SYMBOL(regsister_notify_usb_enumeration_status);
 
@@ -761,9 +762,8 @@ static int dwc3_ep0_std_request(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
 		ret = dwc3_ep0_handle_feature(dwc, ctrl, 1);
 		break;
 	case USB_REQ_SET_ADDRESS:
-		if(usb_enumeration_status&&usb_enumeration_status->notify_usb_enumeration)
-		{
-		usb_enumeration_status->notify_usb_enumeration(true);
+		if(usb_enumeration_status&&usb_enumeration_status->notify_usb_enumeration) {
+			usb_enumeration_status->notify_usb_enumeration(true);
 		}
 		dwc3_trace(trace_dwc3_ep0, "USB_REQ_SET_ADDRESS\n");
 		ret = dwc3_ep0_set_address(dwc, ctrl);
@@ -780,10 +780,6 @@ static int dwc3_ep0_std_request(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
 		dwc3_trace(trace_dwc3_ep0, "USB_REQ_SET_ISOCH_DELAY\n");
 		ret = dwc3_ep0_set_isoch_delay(dwc, ctrl);
 		break;
-	case USB_REQ_SET_INTERFACE:
-		dev_vdbg(dwc->dev, "USB_REQ_SET_INTERFACE\n");
-		dwc->start_config_issued = false;
-		/* Fall through */
 	default:
 		dwc3_trace(trace_dwc3_ep0, "Forwarding to gadget driver\n");
 		ret = dwc3_ep0_delegate_req(dwc, ctrl);
@@ -884,11 +880,6 @@ static void dwc3_ep0_complete_data(struct dwc3 *dwc,
 		unsigned maxp = ep0->endpoint.maxpacket;
 
 		transfer_size += (maxp - (transfer_size % maxp));
-
-		/* Maximum of DWC3_EP0_BOUNCE_SIZE can only be received */
-		if (transfer_size > DWC3_EP0_BOUNCE_SIZE)
-			transfer_size = DWC3_EP0_BOUNCE_SIZE;
-
 		transferred = min_t(u32, ur->length,
 				transfer_size - length);
 		memcpy(ur->buf, dwc->ep0_bounce, transferred);
@@ -1011,13 +1002,10 @@ static void __dwc3_ep0_do_control_data(struct dwc3 *dwc,
 			return;
 		}
 
+		WARN_ON(req->request.length > DWC3_EP0_BOUNCE_SIZE);
+
 		maxpacket = dep->endpoint.maxpacket;
 		transfer_size = roundup(req->request.length, maxpacket);
-
-		if (transfer_size > DWC3_EP0_BOUNCE_SIZE) {
-			dev_WARN(dwc->dev, "bounce buf can't handle req len\n");
-			transfer_size = DWC3_EP0_BOUNCE_SIZE;
-		}
 
 		dwc->ep0_bounced = true;
 

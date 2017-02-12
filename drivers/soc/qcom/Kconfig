@@ -600,16 +600,6 @@ config MSM_IPC_ROUTER_GLINK_XPRT
 	  this layer registers a transport with IPC Router and enable
 	  message exchange.
 
-config MSM_IPC_ROUTER_MHI_XPRT
-	depends on MSM_MHI
-	depends on IPC_ROUTER
-	bool "MSM MHI XPRT Layer"
-	help
-	  MHI Transport Layer that enables off-chip communication of
-	  IPC Router. When the MHI endpoint becomes available, this layer
-	  registers the transport with IPC Router and enable message
-	  exchange.
-
 config MSM_SYSTEM_HEALTH_MONITOR
 	bool "System Health Monitor"
 	depends on MSM_QMI_INTERFACE && MSM_SUBSYSTEM_RESTART
@@ -632,7 +622,7 @@ config MSM_GLINK_PKT
 
 config MSM_TZ_SMMU
 	bool "Helper functions for SMMU configuration through TZ"
-	depends on ARCH_MSMTHULIUM || ARCH_MSMTITANIUM
+	depends on ARCH_MSMTHULIUM || ARCH_MSM8953
 	help
 	  Say 'Y' here for targets that need to call into TZ to configure
 	  SMMUs for any reason (for example, for errata workarounds or
@@ -831,11 +821,6 @@ config QCOM_SMCINVOKE
 	help
 	  Enable SMCInvoke driver which supports capability based secure
 	  communication between QSEE and HLOS.
-
-config RF_CABLE_DETECT
-	bool "detect RF cable connection"
-	help
-	  detect RF cable connection for different RF configuration
 
 source "drivers/soc/qcom/memshare/Kconfig"
 

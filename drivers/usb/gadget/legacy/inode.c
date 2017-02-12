@@ -1018,11 +1018,8 @@ ep0_read (struct file *fd, char __user *buf, size_t len, loff_t *ptr)
 			struct usb_ep		*ep = dev->gadget->ep0;
 			struct usb_request	*req = dev->req;
 
-			if ((retval = setup_req (ep, req, 0)) == 0) {
-				spin_unlock_irq (&dev->lock);
-				retval = usb_ep_queue (ep, req, GFP_KERNEL);
-				spin_lock_irq (&dev->lock);
-			}
+			if ((retval = setup_req (ep, req, 0)) == 0)
+				retval = usb_ep_queue (ep, req, GFP_ATOMIC);
 			dev->state = STATE_DEV_CONNECTED;
 
 			/* assume that was SET_CONFIGURATION */
@@ -1479,8 +1476,7 @@ gadgetfs_setup (struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 		if (0 == (u8) w_value) {
 			value = 0;
 			dev->current_config = 0;
-			//Fix PC USB BUS IDLE cause no charging current issue
-			//usb_gadget_vbus_draw(gadget, 8 /* mA */ );
+			/* usb_gadget_vbus_draw(gadget, 8 /* mA */ ); */
 			// user mode expected to disable endpoints
 		} else {
 			u8	config, power;
@@ -1554,11 +1550,8 @@ delegate:
 							w_length);
 				if (value < 0)
 					break;
-
-				spin_unlock (&dev->lock);
 				value = usb_ep_queue (gadget->ep0, dev->req,
-							GFP_KERNEL);
-				spin_lock (&dev->lock);
+							GFP_ATOMIC);
 				if (value < 0) {
 					clean_req (gadget->ep0, dev->req);
 					break;
@@ -1581,14 +1574,11 @@ delegate:
 	if (value >= 0 && dev->state != STATE_DEV_SETUP) {
 		req->length = value;
 		req->zero = value < w_length;
-
-		spin_unlock (&dev->lock);
-		value = usb_ep_queue (gadget->ep0, req, GFP_KERNEL);
+		value = usb_ep_queue (gadget->ep0, req, GFP_ATOMIC);
 		if (value < 0) {
 			DBG (dev, "ep_queue --> %d\n", value);
 			req->status = 0;
 		}
-		return value;
 	}
 
 	/* device stalls when value < 0 */

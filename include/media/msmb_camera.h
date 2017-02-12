@@ -3,9 +3,6 @@
 
 #include <uapi/media/msmb_camera.h>
 
-#define MSM_CAM_V4L2_IOCTL_DAEMON_DISABLED \
-	_IOW('V', BASE_VIDIOC_PRIVATE + 35, struct msm_v4l2_event_data)
-
 #ifdef CONFIG_COMPAT
 #define MSM_CAM_V4L2_IOCTL_NOTIFY32 \
 	_IOW('V', BASE_VIDIOC_PRIVATE + 30, struct v4l2_event32)

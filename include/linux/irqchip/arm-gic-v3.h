@@ -99,7 +99,22 @@
 #define GICR_PROPBASER_WaWb		(5U << 7)
 #define GICR_PROPBASER_RaWaWt		(6U << 7)
 #define GICR_PROPBASER_RaWaWb		(7U << 7)
+#define GICR_PROPBASER_CACHEABILITY_MASK (7U << 7)
 #define GICR_PROPBASER_IDBITS_MASK	(0x1f)
+
+#define GICR_PENDBASER_NonShareable	(0U << 10)
+#define GICR_PENDBASER_InnerShareable	(1U << 10)
+#define GICR_PENDBASER_OuterShareable	(2U << 10)
+#define GICR_PENDBASER_SHAREABILITY_MASK (3UL << 10)
+#define GICR_PENDBASER_nCnB		(0U << 7)
+#define GICR_PENDBASER_nC		(1U << 7)
+#define GICR_PENDBASER_RaWt		(2U << 7)
+#define GICR_PENDBASER_RaWb		(3U << 7)
+#define GICR_PENDBASER_WaWt		(4U << 7)
+#define GICR_PENDBASER_WaWb		(5U << 7)
+#define GICR_PENDBASER_RaWaWt		(6U << 7)
+#define GICR_PENDBASER_RaWaWb		(7U << 7)
+#define GICR_PENDBASER_CACHEABILITY_MASK (7U << 7)
 
 /*
  * Re-Distributor registers, offsets from SGI_base
@@ -134,6 +149,11 @@
 
 #define GITS_TRANSLATER			0x10040
 
+#define GITS_CTLR_ENABLE		(1U << 0)
+#define GITS_CTLR_QUIESCENT		(1U << 31)
+
+#define GITS_TYPER_DEVBITS_SHIFT	13
+#define GITS_TYPER_DEVBITS(r)		((((r) >> GITS_TYPER_DEVBITS_SHIFT) & 0x1f) + 1)
 #define GITS_TYPER_PTA			(1UL << 19)
 
 #define GITS_CBASER_VALID		(1UL << 63)
@@ -145,6 +165,7 @@
 #define GITS_CBASER_WaWb		(5UL << 59)
 #define GITS_CBASER_RaWaWt		(6UL << 59)
 #define GITS_CBASER_RaWaWb		(7UL << 59)
+#define GITS_CBASER_CACHEABILITY_MASK	(7UL << 59)
 #define GITS_CBASER_NonShareable	(0UL << 10)
 #define GITS_CBASER_InnerShareable	(1UL << 10)
 #define GITS_CBASER_OuterShareable	(2UL << 10)
@@ -161,6 +182,7 @@
 #define GITS_BASER_WaWb			(5UL << 59)
 #define GITS_BASER_RaWaWt		(6UL << 59)
 #define GITS_BASER_RaWaWb		(7UL << 59)
+#define GITS_BASER_CACHEABILITY_MASK	(7UL << 59)
 #define GITS_BASER_TYPE_SHIFT		(56)
 #define GITS_BASER_TYPE(r)		(((r) >> GITS_BASER_TYPE_SHIFT) & 7)
 #define GITS_BASER_ENTRY_SIZE_SHIFT	(48)
@@ -248,18 +270,6 @@
 #define ICC_SRE_EL2_SRE			(1 << 0)
 #define ICC_SRE_EL2_ENABLE		(1 << 3)
 
-#define ICC_SGI1R_TARGET_LIST_SHIFT	0
-#define ICC_SGI1R_TARGET_LIST_MASK	(0xffff << ICC_SGI1R_TARGET_LIST_SHIFT)
-#define ICC_SGI1R_AFFINITY_1_SHIFT	16
-#define ICC_SGI1R_AFFINITY_1_MASK	(0xff << ICC_SGI1R_AFFINITY_1_SHIFT)
-#define ICC_SGI1R_SGI_ID_SHIFT		24
-#define ICC_SGI1R_SGI_ID_MASK		(0xfULL << ICC_SGI1R_SGI_ID_SHIFT)
-#define ICC_SGI1R_AFFINITY_2_SHIFT	32
-#define ICC_SGI1R_AFFINITY_2_MASK	(0xffULL << ICC_SGI1R_AFFINITY_1_SHIFT)
-#define ICC_SGI1R_IRQ_ROUTING_MODE_BIT	40
-#define ICC_SGI1R_AFFINITY_3_SHIFT	48
-#define ICC_SGI1R_AFFINITY_3_MASK	(0xffULL << ICC_SGI1R_AFFINITY_1_SHIFT)
-
 /*
  * System register definitions
  */
@@ -306,6 +316,7 @@
 #ifndef __ASSEMBLY__
 
 #include <linux/stringify.h>
+#include <asm/msi.h>
 
 /*
  * We need a value to serve as a irq-type for LPIs. Choose one that will

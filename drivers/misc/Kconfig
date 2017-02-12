@@ -433,7 +433,7 @@ config ARM_CHARLCD
 	  still useful.
 
 config BMP085
-	tristate
+	bool
 	depends on SYSFS
 
 config BMP085_I2C
@@ -608,13 +608,14 @@ config GPIO_SWITCH
 	help
 	  we can use gpio switch set gpio out high or low
 
-#add by xcb
-config BOOTLOADER_LOG
-	tristate "show bootloader log"
-	depends on OF
-	default y
+config QPNP_MISC
+	tristate "QPNP Misc Peripheral"
+	depends on SPMI || MSM_SPMI
 	help
-	  show bootloader log in kernel
+	  Say 'y' here to include support for the QTI QPNP MISC
+	  peripheral. The MISC peripheral holds the USB ID interrupt
+	  and the driver provides an API to check if this interrupt
+	  is available on the current PMIC chip.
 
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"

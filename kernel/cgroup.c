@@ -2400,8 +2400,7 @@ retry_find_task:
 		 * only need to check permissions on one of them.
 		 */
 		tcred = __task_cred(tsk);
-		if (!uid_eq(cred->euid, GLOBAL_SYSTEM_UID) &&
-                    !uid_eq(cred->euid, GLOBAL_ROOT_UID) &&
+		if (!uid_eq(cred->euid, GLOBAL_ROOT_UID) &&
 		    !uid_eq(cred->euid, tcred->uid) &&
 		    !uid_eq(cred->euid, tcred->suid)) {
 			/*
@@ -2505,6 +2504,58 @@ static ssize_t cgroup_tasks_write(struct kernfs_open_file *of,
 {
 	return __cgroup_procs_write(of, buf, nbytes, off, false);
 }
+
+#ifdef CONFIG_CGROUP_SCHED
+int cgroup_attach_task_to_root(struct task_struct *tsk, int wait)
+{
+	int ret = 0;
+	struct cgroup *cgrp;
+	struct cgroup *root_cgrp = NULL;
+
+	if (!mutex_trylock(&cgroup_mutex)) {
+		/*This can be a case of recursion, so bail out */
+		if (!wait)
+			return -EBUSY;
+		mutex_lock(&cgroup_mutex);
+	}
+
+	cgrp = task_cgroup(tsk, cpu_cgrp_id);
+
+	if (cgrp && cgrp->root)
+		root_cgrp = &cgrp->root->cgrp;
+
+	if (root_cgrp && cgrp != root_cgrp)
+		cgrp = root_cgrp;
+	else
+		goto out_unlock_cgroup;
+
+	if (cgroup_is_dead(cgrp)) {
+		ret = -ENODEV;
+		goto out_unlock_cgroup;
+	}
+
+	rcu_read_lock();
+
+	get_task_struct(tsk);
+	rcu_read_unlock();
+
+	threadgroup_lock(tsk);
+
+	ret = cgroup_attach_task(cgrp, tsk, false);
+
+	threadgroup_unlock(tsk);
+
+	put_task_struct(tsk);
+out_unlock_cgroup:
+	mutex_unlock(&cgroup_mutex);
+	return ret;
+}
+#else
+int cgroup_attach_task_to_root(struct task_struct *tsk, int wait)
+{
+	return 0;
+}
+#endif
 
 static ssize_t cgroup_procs_write(struct kernfs_open_file *of,
 				  char *buf, size_t nbytes, loff_t off)
@@ -4543,7 +4594,7 @@ static int create_css(struct cgroup *cgrp, struct cgroup_subsys *ss,
 
 	err = cgroup_idr_alloc(&ss->css_idr, NULL, 2, 0, GFP_NOWAIT);
 	if (err < 0)
-		goto err_free_css;
+		goto err_free_percpu_ref;
 	css->id = err;
 
 	if (visible) {
@@ -4575,6 +4626,9 @@ err_list_del:
 	list_del_rcu(&css->sibling);
 	cgroup_clear_dir(css->cgroup, 1 << css->ss->id);
 err_free_id:
+	cgroup_idr_remove(&ss->css_idr, css->id);
+err_free_percpu_ref:
+	percpu_ref_exit(&css->refcnt);
 err_free_css:
 	call_rcu(&css->rcu_head, css_free_rcu_fn);
 	return err;

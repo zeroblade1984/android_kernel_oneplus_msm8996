@@ -704,6 +704,34 @@ out:
 	return (count * 8) + sizeof(*header);
 }
 
+/* Snapshot a preemption record buffer */
+static size_t snapshot_preemption_record(struct kgsl_device *device, u8 *buf,
+	size_t remain, void *priv)
+{
+	struct kgsl_memdesc *memdesc = priv;
+
+	struct kgsl_snapshot_gpu_object_v2 *header =
+		(struct kgsl_snapshot_gpu_object_v2 *)buf;
+
+	u8 *ptr = buf + sizeof(*header);
+
+	if (remain < (SZ_64K + sizeof(*header))) {
+		SNAPSHOT_ERR_NOMEM(device, "PREEMPTION RECORD");
+		return 0;
+	}
+
+	header->size = SZ_64K >> 2;
+	header->gpuaddr = memdesc->gpuaddr;
+	header->ptbase =
+		kgsl_mmu_pagetable_get_ttbr0(device->mmu.defaultpagetable);
+	header->type = SNAPSHOT_GPU_OBJECT_GLOBAL;
+
+	memcpy(ptr, memdesc->hostptr, SZ_64K);
+
+	return SZ_64K + sizeof(*header);
+}
+
+
 static void _a5xx_do_crashdump(struct kgsl_device *device)
 {
 	unsigned long wait_time;
@@ -785,33 +813,6 @@ static size_t a5xx_snapshot_dump_hlsq_sp_tp_regs(struct kgsl_device *device,
 
 	/* Return the size of the section */
 	return (count * 8) + sizeof(*header);
-}
-
-/* Snapshot a preemption record buffer */
-static size_t snapshot_preemption_record(struct kgsl_device *device, u8 *buf,
-	size_t remain, void *priv)
-{
-	struct kgsl_memdesc *memdesc = priv;
-
-	struct kgsl_snapshot_gpu_object_v2 *header =
-		(struct kgsl_snapshot_gpu_object_v2 *)buf;
-
-	u8 *ptr = buf + sizeof(*header);
-
-	if (remain < (SZ_64K + sizeof(*header))) {
-		SNAPSHOT_ERR_NOMEM(device, "PREEMPTION RECORD");
-		return 0;
-	}
-
-	header->size = SZ_64K >> 2;
-	header->gpuaddr = memdesc->gpuaddr;
-	header->ptbase =
-		kgsl_mmu_pagetable_get_ttbr0(device->mmu.defaultpagetable);
-	header->type = SNAPSHOT_GPU_OBJECT_GLOBAL;
-
-	memcpy(ptr, memdesc->hostptr, SZ_64K);
-
-	return SZ_64K + sizeof(*header);
 }
 
 /*
@@ -1032,11 +1033,11 @@ void a5xx_crashdump_init(struct adreno_device *adreno_dev)
 	/* The script buffers needs 2 extra qwords on the end */
 	if (kgsl_allocate_global(device, &capturescript,
 		script_size + 16, KGSL_MEMFLAGS_GPUREADONLY,
-		KGSL_MEMDESC_PRIVILEGED))
+		KGSL_MEMDESC_PRIVILEGED, "capturescript"))
 		return;
 
 	if (kgsl_allocate_global(device, &registers, data_size, 0,
-		KGSL_MEMDESC_PRIVILEGED)) {
+		KGSL_MEMDESC_PRIVILEGED, "capturescript_regs")) {
 		kgsl_free_global(KGSL_DEVICE(adreno_dev), &capturescript);
 		return;
 	}

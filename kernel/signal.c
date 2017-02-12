@@ -1187,18 +1187,7 @@ int do_send_sig_info(int sig, struct siginfo *info, struct task_struct *p,
 {
 	unsigned long flags;
 	int ret = -ESRCH;
-        if(sig == SIGKILL){
-            if(p && p->flags & PF_FROZEN){
-                struct task_struct *child = p;
-                rcu_read_lock();
-                do{
-                    child = next_thread(child);
-                    child->kill_flag = 1;
-                    __thaw_task(child);
-                }while(child !=p);
-                rcu_read_unlock();
-            }
-        }
+
 	if (lock_task_sighand(p, &flags)) {
 		ret = send_signal(sig, info, p, group);
 		unlock_task_sighand(p, &flags);
@@ -2504,7 +2493,7 @@ EXPORT_SYMBOL(unblock_all_signals);
  */
 SYSCALL_DEFINE0(restart_syscall)
 {
-	struct restart_block *restart = &current->restart_block;
+	struct restart_block *restart = &current_thread_info()->restart_block;
 	return restart->fn(restart);
 }
 

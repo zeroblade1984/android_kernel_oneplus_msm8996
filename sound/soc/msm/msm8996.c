@@ -32,13 +32,11 @@
 #include <sound/pcm_params.h>
 #include <sound/info.h>
 #include <device_event.h>
-#include <sound/sounddebug.h>
 #include "qdsp6v2/msm-pcm-routing-v2.h"
 #include "../codecs/wcd9xxx-common.h"
 #include "../codecs/wcd9330.h"
 #include "../codecs/wcd9335.h"
 #include "../codecs/wsa881x.h"
-#include <sound/sounddebug.h>
 
 #define DRV_NAME "msm8996-asoc-snd"
 
@@ -49,7 +47,6 @@
 #define SAMPLING_RATE_96KHZ     96000
 #define SAMPLING_RATE_192KHZ    192000
 #define SAMPLING_RATE_44P1KHZ   44100
-
 
 #define MSM8996_SPK_ON     0
 #define MSM8996_HIFI_ON    0
@@ -90,6 +87,7 @@ static int msm_vi_feed_tx_ch = 2;
 static int msm_hdmi_rx_ch = 2;
 static int msm_proxy_rx_ch = 2;
 static int hdmi_rx_sample_rate = SAMPLING_RATE_48KHZ;
+//static int msm_tert_mi2s_tx_ch = 2;
 
 static bool codec_reg_done;
 
@@ -518,7 +516,7 @@ static int msm8996_get_spk(struct snd_kcontrol *kcontrol,
 static int msm8996_set_spk(struct snd_kcontrol *kcontrol,
 			      struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
 
 	pr_debug("%s() ucontrol->value.integer.value[0] = %ld\n",
 		 __func__, ucontrol->value.integer.value[0]);
@@ -655,6 +653,35 @@ static int msm8996_mclk_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+static int msm_snd_enable_codec_ext_tx_clk(struct snd_soc_codec *codec,
+					   int enable, bool dapm)
+{
+	int ret = 0;
+
+	if (!strcmp(dev_name(codec->dev), "tasha_codec"))
+		ret = tasha_cdc_mclk_tx_enable(codec, enable, dapm);
+	else {
+		dev_err(codec->dev, "%s: unknown codec to enable ext clk\n",
+			__func__);
+		ret = -EINVAL;
+	}
+	return ret;
+}
+
+static int msm8996_mclk_tx_event(struct snd_soc_dapm_widget *w,
+				 struct snd_kcontrol *kcontrol, int event)
+{
+	pr_debug("%s: event = %d\n", __func__, event);
+
+	switch (event) {
+	case SND_SOC_DAPM_PRE_PMU:
+		return msm_snd_enable_codec_ext_tx_clk(w->codec, 1, true);
+	case SND_SOC_DAPM_POST_PMD:
+		return msm_snd_enable_codec_ext_tx_clk(w->codec, 0, true);
+	}
+	return 0;
+}
+
 static int msm_hifi_ctrl_event(struct snd_soc_dapm_widget *w,
 				    struct snd_kcontrol *k, int event)
 {
@@ -698,6 +725,9 @@ static const struct snd_soc_dapm_widget msm8996_dapm_widgets[] = {
 	SND_SOC_DAPM_SUPPLY("MCLK",  SND_SOC_NOPM, 0, 0,
 	msm8996_mclk_event, SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
 
+	SND_SOC_DAPM_SUPPLY("MCLK TX",  SND_SOC_NOPM, 0, 0,
+	msm8996_mclk_tx_event, SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+
 	SND_SOC_DAPM_SPK("Lineout_1 amp", NULL),
 	SND_SOC_DAPM_SPK("Lineout_3 amp", NULL),
 	SND_SOC_DAPM_SPK("Lineout_2 amp", NULL),
@@ -706,7 +736,6 @@ static const struct snd_soc_dapm_widget msm8996_dapm_widgets[] = {
 	SND_SOC_DAPM_SPK("hifi amp", msm_hifi_ctrl_event),
 	SND_SOC_DAPM_MIC("Handset Mic", NULL),
 	SND_SOC_DAPM_MIC("Headset Mic", NULL),
-//su
 	SND_SOC_DAPM_MIC("Primary Mic", NULL),
 	SND_SOC_DAPM_MIC("Noise Mic", NULL),
 
@@ -724,10 +753,10 @@ static const struct snd_soc_dapm_widget msm8996_dapm_widgets[] = {
 };
 
 static struct snd_soc_dapm_route wcd9335_audio_paths[] = {
-	{"MIC BIAS1", NULL, "MCLK"},
-	{"MIC BIAS2", NULL, "MCLK"},
-	{"MIC BIAS3", NULL, "MCLK"},
-	{"MIC BIAS4", NULL, "MCLK"},
+	{"MIC BIAS1", NULL, "MCLK TX"},
+	{"MIC BIAS2", NULL, "MCLK TX"},
+	{"MIC BIAS3", NULL, "MCLK TX"},
+	{"MIC BIAS4", NULL, "MCLK TX"},
 };
 
 static int slim5_rx_sample_rate_get(struct snd_kcontrol *kcontrol,
@@ -1594,7 +1623,6 @@ static int quat_mi2s_bit_format_put(struct snd_kcontrol *kcontrol,
 
 	return 0;
 }
-
 static int msm_proxy_rx_ch_get(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_value *ucontrol)
 {
@@ -1674,6 +1702,7 @@ static int msm8996_hdmi_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 	return 0;
 }
 
+
 static int legacy_msm8996_mi2s_snd_startup(struct snd_pcm_substream *substream)
 {
 	int ret = 0;
@@ -1710,6 +1739,7 @@ static void legacy_msm8996_mi2s_snd_shutdown(struct snd_pcm_substream *substream
 	if (ret < 0)
 		pr_err("%s: afe lpass clock failed, err:%d\n", __func__, ret);
 }
+
 
 static struct snd_soc_ops legacy_msm8996_mi2s_be_ops = {
 	.startup = legacy_msm8996_mi2s_snd_startup,
@@ -2321,7 +2351,14 @@ static int msm8996_wcd93xx_codec_up(struct snd_soc_codec *codec)
 
 	do {
 		if (!q6core_is_adsp_ready()) {
-			pr_err("%s: ADSP Audio isn't ready\n", __func__);
+			pr_err_ratelimited("%s: ADSP Audio isn't ready\n",
+					   __func__);
+			/*
+			 * ADSP will be coming up after subsystem restart and
+			 * it might not be fully up when the control reaches
+			 * here. So, wait for 50msec before checking ADSP state
+			 */
+			msleep(50);
 		} else {
 			pr_debug("%s: ADSP Audio is ready\n", __func__);
 			adsp_ready = 1;
@@ -2618,10 +2655,10 @@ static void *def_tasha_mbhc_cal(void)
 	btn_high[1] = 213;
 	btn_high[2] = 450;
 	btn_high[3] = 470;
-	btn_high[4] = 450;
-	btn_high[5] = 450;
-	btn_high[6] = 450;
-	btn_high[7] = 450;
+	btn_high[4] = 500;
+	btn_high[5] = 500;
+	btn_high[6] = 500;
+	btn_high[7] = 500;
 
 	return tasha_wcd_cal;
 }
@@ -3632,6 +3669,20 @@ static struct snd_soc_dai_link msm8996_tasha_fe_dai_links[] = {
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 	},
+	/* CPE LSM EC PP direct dai-link */
+	{
+		.name = "CPE Listen service ECPP",
+		.stream_name = "CPE Listen Audio Service ECPP",
+		.cpu_dai_name = "CPE_LSM_NOHOST",
+		.platform_name = "msm-cpe-lsm.3",
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			    SND_SOC_DPCM_TRIGGER_POST},
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1,
+		.codec_dai_name = "tasha_cpe",
+		.codec_name = "tasha_codec",
+	},
 };
 
 static struct snd_soc_dai_link msm8996_common_be_dai_links[] = {
@@ -3798,8 +3849,6 @@ static struct snd_soc_dai_link msm8996_tasha_be_dai_links[] = {
 		.ops = &msm8996_quat_mi2s_be_ops,
 		.ignore_suspend = 1,
 	},
-
-
 	/* Backend DAI Links */
 	{
 		.name = LPASS_BE_SLIMBUS_0_RX,

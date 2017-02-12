@@ -35,7 +35,6 @@
 #include <sound/initval.h>
 #include <sound/tlv.h>
 #include <linux/version.h>
-#include <sound/sounddebug.h>
 #include "tfa98xx-core.h"
 #include "tfa98xx-regs.h"
 #include "tfa_container.h"
@@ -279,6 +278,7 @@ int tfa98xx_bulk_write_raw(struct snd_soc_codec *codec, const u8 *data,
 		return -EIO;
 	}
 }
+
 
 
 static void tfa98xx_dsp_init(struct work_struct *work)

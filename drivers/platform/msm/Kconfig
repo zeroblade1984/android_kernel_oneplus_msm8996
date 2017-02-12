@@ -194,6 +194,16 @@ config IPA_UT
 	  The user interface to run and control the tests is debugfs file
 	  system.
 
+config SSM
+	tristate "QTI Secure Service Module"
+	depends on QSEECOM
+	depends on MSM_SMD
+	help
+	  Provides an interface for OEM driver to communicate with Trustzone
+	  and modem for key exchange and mode change.
+	  This driver uses Secure Channel Manager interface for trustzone
+	  communication and communicates with modem over SMD channel.
+
 config MSM_MHI
 	tristate "Modem Host Interface Driver"
 	help
@@ -289,6 +299,15 @@ config MSM_11AD
 
 	  If you choose to build it as a module, it will be called
 	  msm_11ad_proxy.
+
+config BW_MONITOR
+	bool "Bandwidth monitor driver"
+        depends on BUS_TOPOLOGY_ADHOC && THERMAL
+	help
+	 Enable this module if any bandwidth of a bus needs to be
+	 monitored and limited by thermal core framework. It does
+	 it by registering the bus bandwidth as a sensor in
+	 thermal core framework.
 
 source "drivers/platform/msm/spmi/Kconfig"
 

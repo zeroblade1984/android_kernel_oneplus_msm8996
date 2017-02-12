@@ -452,7 +452,7 @@ void adreno_drawctxt_detach(struct kgsl_context *context)
 	struct adreno_device *adreno_dev;
 	struct adreno_context *drawctxt;
 	struct adreno_ringbuffer *rb;
-	int ret = 0, count, i;
+	int ret, count, i;
 	struct kgsl_cmdbatch *list[ADRENO_CONTEXT_CMDQUEUE_SIZE];
 
 	if (context == NULL)

@@ -19,9 +19,6 @@
 #include <linux/aio.h>
 #include <linux/falloc.h>
 
-#include <linux/statfs.h>
-#include <linux/namei.h>
-
 static const struct file_operations fuse_direct_io_file_operations;
 
 static int fuse_send_open(struct fuse_conn *fc, u64 nodeid, struct file *file,
@@ -470,15 +467,6 @@ static int fuse_flush(struct file *file, fl_owner_t id)
 	fuse_sync_writes(inode);
 	mutex_unlock(&inode->i_mutex);
 
-	if (test_bit(AS_ENOSPC, &file->f_mapping->flags) &&
-	    test_and_clear_bit(AS_ENOSPC, &file->f_mapping->flags))
-		err = -ENOSPC;
-	if (test_bit(AS_EIO, &file->f_mapping->flags) &&
-	    test_and_clear_bit(AS_EIO, &file->f_mapping->flags))
-		err = -EIO;
-	if (err)
-		return err;
-
 	req = fuse_get_req_nofail_nopages(fc, file);
 	memset(&inarg, 0, sizeof(inarg));
 	inarg.fh = ff->fh;
@@ -524,21 +512,6 @@ int fuse_fsync_common(struct file *file, loff_t start, loff_t end,
 		goto out;
 
 	fuse_sync_writes(inode);
-
-	/*
-	 * Due to implementation of fuse writeback
-	 * filemap_write_and_wait_range() does not catch errors.
-	 * We have to do this directly after fuse_sync_writes()
-	 */
-	if (test_bit(AS_ENOSPC, &file->f_mapping->flags) &&
-	    test_and_clear_bit(AS_ENOSPC, &file->f_mapping->flags))
-		err = -ENOSPC;
-	if (test_bit(AS_EIO, &file->f_mapping->flags) &&
-	    test_and_clear_bit(AS_EIO, &file->f_mapping->flags))
-		err = -EIO;
-	if (err)
-		goto out;
-
 	err = sync_inode_metadata(inode, 1);
 	if (err)
 		goto out;
@@ -1277,62 +1250,6 @@ static ssize_t fuse_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	ssize_t err;
 	loff_t endbyte = 0;
 	loff_t pos = iocb->ki_pos;
-	struct kstatfs statfs;
-	u64 avail;
-	size_t size;
-	u32 reserved_blocks;
-	u32 reserved_bytes;
-	struct path data_partition_path;
-
-	reserved_bytes = get_fuse_conn(inode)->reserved_mem << 20;
-
-	if (reserved_bytes != 0) {
-
-		err = kern_path("/data",
-			LOOKUP_FOLLOW | LOOKUP_DIRECTORY, &data_partition_path);
-		if (unlikely(err))
-		{
-			printk(KERN_INFO "Failed to get data partition path(%d)\n",
-				(int)err);
-			err = vfs_statfs(&file->f_path, &statfs);
-			if (unlikely(err))
-			{
-				printk(KERN_ERR "statfs file path error(%d)\n",
-					(int)err);
-				return err;
-			}
-		}
-		else
-		{
-			err = vfs_statfs(&data_partition_path, &statfs);
-			if (unlikely(err))
-			{
-				printk(KERN_INFO "statfs data partition error(%d)\n",
-					(int)err);
-				err = vfs_statfs(&file->f_path, &statfs);
-				if (unlikely(err))
-				{
-					path_put(&data_partition_path);
-					return err;
-				}
-			}
-			path_put(&data_partition_path);
-		}
-
-		reserved_blocks = (reserved_bytes / statfs.f_bsize);
-
-		if (statfs.f_bavail < reserved_blocks)
-			statfs.f_bavail = 0;
-		else
-			statfs.f_bavail -= reserved_blocks;
-
-		avail = statfs.f_bavail * statfs.f_bsize;
-		size = iov_length(from->iov, from->nr_segs);
-
-		if ((u64)size > avail) {
-			return -ENOSPC;
-		}
-	}
 
 	if (get_fuse_conn(inode)->writeback_cache) {
 		/* Update size (EOF optimization) and mode (SUID clearing) */
@@ -3009,7 +2926,7 @@ static void fuse_do_truncate(struct file *file)
 	attr.ia_file = file;
 	attr.ia_valid |= ATTR_FILE;
 
-	fuse_do_setattr(file->f_path.dentry, &attr, file);
+	fuse_do_setattr(inode, &attr, file);
 }
 
 static inline loff_t fuse_round_up(loff_t off)

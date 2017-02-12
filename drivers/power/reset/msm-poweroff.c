@@ -14,7 +14,6 @@
 #include <linux/delay.h>
 #include <linux/err.h>
 #include <linux/init.h>
-#include <linux/slab.h>
 #include <linux/kernel.h>
 
 #include <linux/io.h>
@@ -34,8 +33,6 @@
 #include <soc/qcom/restart.h>
 #include <soc/qcom/watchdog.h>
 
-#include <linux/param_rw.h>
-
 #define EMERGENCY_DLOAD_MAGIC1    0x322A4F99
 #define EMERGENCY_DLOAD_MAGIC2    0xC67E4350
 #define EMERGENCY_DLOAD_MAGIC3    0x77777777
@@ -48,23 +45,9 @@
 #define SCM_EDLOAD_MODE			0X01
 #define SCM_DLOAD_CMD			0x10
 
-#define DEVICE_INFO_SIZE 2048
-/*Define a global pointer which points to the boot shared imem cookie structure */
-char oem_pcba_number[28];
-char device_info[DEVICE_INFO_SIZE];
-extern char oem_serialno[16];
-extern char oem_hw_version[3];
-extern char oem_rf_version[3];
-extern char oem_ddr_manufacture_info[16];
-extern char oem_ufs_manufacture_info[16];
-extern char oem_ufs_fw_version[3];
-
-extern uint32_t chip_serial_num;
-
-extern struct boot_shared_imem_cookie_type *boot_shared_imem_cookie_ptr;
 
 static int restart_mode;
-static void *restart_reason, *dload_type_addr;
+static void *restart_reason;
 static bool scm_pmic_arbiter_disable_supported;
 static bool scm_deassert_ps_hold_supported;
 /* Download mode master kill-switch */
@@ -72,13 +55,15 @@ static void __iomem *msm_ps_hold;
 static phys_addr_t tcsr_boot_misc_detect;
 static void scm_disable_sdi(void);
 
+#ifdef CONFIG_MSM_DLOAD_MODE
 /* Runtime could be only changed value once.
- * There is no API from TZ to re-enable the registers.
- * So the SDI cannot be re-enabled when it already by-passed.
- */
-/* set default download mode as 0 to avoid device enter dump */
-static int download_mode = 0;
-static struct kobject dload_kobj;
+* There is no API from TZ to re-enable the registers.
+* So the SDI cannot be re-enabled when it already by-passed.
+*/
+static int download_mode = 1;
+#else
+static const int download_mode;
+#endif
 
 #ifdef CONFIG_MSM_DLOAD_MODE
 #define EDL_MODE_PROP "qcom,msm-imem-emergency_download_mode"
@@ -89,6 +74,8 @@ static void *dload_mode_addr;
 static bool dload_mode_enabled;
 static void *emergency_dload_mode_addr;
 static bool scm_dload_supported;
+static struct kobject dload_kobj;
+static void *dload_type_addr;
 
 static int dload_set(const char *val, struct kernel_param *kp);
 /* interface for exporting attributes */
@@ -107,11 +94,6 @@ struct reset_attribute {
 
 module_param_call(download_mode, dload_set, param_get_int,
 			&download_mode, 0644);
-
-int oem_get_download_mode(void)
-{
-	return download_mode;
-}
 
 static int panic_prep_restart(struct notifier_block *this,
 			      unsigned long event, void *ptr)
@@ -161,9 +143,6 @@ static void set_dload_mode(int on)
 	ret = scm_set_dload_mode(on ? SCM_DLOAD_MODE : 0, 0);
 	if (ret)
 		pr_err("Failed to set secure DLOAD mode: %d\n", ret);
-
-	if (!on)
-		scm_disable_sdi();
 
 	dload_mode_enabled = on;
 }
@@ -221,7 +200,7 @@ static int dload_set(const char *val, struct kernel_param *kp)
 #else
 static void set_dload_mode(int on)
 {
-	scm_disable_sdi();
+	return;
 }
 
 static void enable_emergency_dload_mode(void)
@@ -307,9 +286,13 @@ static void msm_restart_prepare(const char *cmd)
 			!strcmp(cmd, "edl")))
 			need_warm_reset = true;
 	} else {
-            need_warm_reset = (get_dload_mode() ||
+		need_warm_reset = (get_dload_mode() ||
 				(cmd != NULL && cmd[0] != '\0'));
 	}
+
+#ifdef CONFIG_MSM_PRESERVE_MEM
+	need_warm_reset = true;
+#endif
 
 	/* Hard reset the PMIC unless memory contents must be maintained. */
 	if (need_warm_reset) {
@@ -319,28 +302,6 @@ static void msm_restart_prepare(const char *cmd)
 	}
 
 	if (cmd != NULL) {
-        if (!strncmp(cmd, "rf", 2)) {
-            qpnp_pon_set_restart_reason(PON_RESTART_REASON_RF);
-	        __raw_writel(RF_MODE, restart_reason);
-	    }else if(!strncmp(cmd, "wlan", 4)){
-	        qpnp_pon_set_restart_reason(PON_RESTART_REASON_WLAN);
-	        __raw_writel(WLAN_MODE, restart_reason);
-	    }else if(!strncmp(cmd, "mos", 3)) {
-	        qpnp_pon_set_restart_reason(PON_RESTART_REASON_MOS);
-	        __raw_writel(MOS_MODE, restart_reason);
-	    }else if(!strncmp(cmd, "ftm", 3)) {
-	        qpnp_pon_set_restart_reason(PON_RESTART_REASON_FACTORY);
-	        __raw_writel(FACTORY_MODE, restart_reason);
-	    }else if(!strncmp(cmd, "kernel", 6)) {
-	        qpnp_pon_set_restart_reason(PON_RESTART_REASON_KERNEL);
-	        __raw_writel(KERNEL_MODE, restart_reason);
-	    }else if (!strncmp(cmd, "modem", 5)) {
-	        qpnp_pon_set_restart_reason(PON_RESTART_REASON_MODEM);
-	        __raw_writel(MODEM_MODE, restart_reason);
-	    }else if (!strncmp(cmd, "android", 7)) {
-	        qpnp_pon_set_restart_reason(PON_RESTART_REASON_ANDROID);
-	        __raw_writel(ANDROID_MODE, restart_reason);
-	    }else
 		if (!strncmp(cmd, "bootloader", 10)) {
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_BOOTLOADER);
@@ -349,15 +310,7 @@ static void msm_restart_prepare(const char *cmd)
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_RECOVERY);
 			__raw_writel(0x77665502, restart_reason);
-		}
-
-                else if (!strcmp(cmd, "aging")) {
-			qpnp_pon_set_restart_reason(
-				PON_RESTART_REASON_AGING);
-			__raw_writel(0x77665510, restart_reason);
-              }
-
-                else if (!strcmp(cmd, "rtc")) {
+		} else if (!strcmp(cmd, "rtc")) {
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_RTC);
 			__raw_writel(0x77665503, restart_reason);
@@ -383,16 +336,16 @@ static void msm_restart_prepare(const char *cmd)
 		} else if (!strncmp(cmd, "edl", 3)) {
 			enable_emergency_dload_mode();
 		} else {
-		    pr_notice("%s : cmd is %s, set to reboot mode\n", __func__, cmd);
-            qpnp_pon_set_restart_reason(PON_RESTART_REASON_REBOOT);
+			pr_notice("%s : cmd is %s, set to reboot mode\n", __func__, cmd);
+			qpnp_pon_set_restart_reason(PON_RESTART_REASON_REBOOT);
 			__raw_writel(0x77665501, restart_reason);
 		}
+	} else {
+		pr_notice("%s : cmd is NULL, set to reboot mode\n", __func__);
+		qpnp_pon_set_restart_reason(PON_RESTART_REASON_REBOOT);
+		__raw_writel(0x77665501, restart_reason);
 	}
-    else {
-        pr_notice("%s : cmd is NULL, set to reboot mode\n", __func__);
-        qpnp_pon_set_restart_reason(PON_RESTART_REASON_REBOOT);
-        __raw_writel(0x77665501, restart_reason);
-    }
+
 	flush_cache_all();
 
 	/*outer_flush_all is not supported by 64bit kernel*/
@@ -442,6 +395,7 @@ static void do_msm_restart(enum reboot_mode reboot_mode, const char *cmd)
 		msm_trigger_wdog_bite();
 #endif
 
+	scm_disable_sdi();
 	halt_spmi_pmic_arbiter();
 	deassert_ps_hold();
 
@@ -453,6 +407,7 @@ static void do_msm_poweroff(void)
 	pr_notice("Powering off the SoC\n");
 
 	set_dload_mode(0);
+	scm_disable_sdi();
 	qpnp_pon_system_pwr_off(PON_POWER_OFF_SHUTDOWN);
 
 	halt_spmi_pmic_arbiter();
@@ -463,6 +418,7 @@ static void do_msm_poweroff(void)
 	return;
 }
 
+#ifdef CONFIG_MSM_DLOAD_MODE
 static ssize_t attr_show(struct kobject *kobj, struct attribute *attr,
 				char *buf)
 {
@@ -540,6 +496,7 @@ static struct attribute *reset_attrs[] = {
 static struct attribute_group reset_attr_group = {
 	.attrs = reset_attrs,
 };
+#endif
 
 static int msm_restart_probe(struct platform_device *pdev)
 {
@@ -569,29 +526,6 @@ static int msm_restart_probe(struct platform_device *pdev)
 		emergency_dload_mode_addr = of_iomap(np, 0);
 		if (!emergency_dload_mode_addr)
 			pr_err("unable to map imem EDLOAD mode offset\n");
-	}
-
-	get_param_pcba_number(oem_pcba_number);
-	sprintf(device_info,
-		"hardware version: %s\r\n"
-		"rf version: %s\r\n"
-		"socinfo serial_number: %u\r\n"
-		"ddr manufacturer: %s\r\n"
-		"ufs manufacturer: %s\r\n"
-		"ufs firmware version: %s\r\n"
-		"pcba number: %s\r\n"
-		"serial number: %s\r\n"
-		"kernel version: %s\r\n"
-		"boot command: %s\r\n",
-		oem_hw_version, oem_rf_version, chip_serial_num, oem_ddr_manufacture_info, oem_ufs_manufacture_info, oem_ufs_fw_version,
-		oem_pcba_number+1, oem_serialno, linux_banner, saved_command_line);
-	boot_shared_imem_cookie_ptr = ioremap(SHARED_IMEM_BOOT_BASE, sizeof(struct boot_shared_imem_cookie_type));
-	if(!boot_shared_imem_cookie_ptr)
-		pr_err("unable to map imem DLOAD mode offset for OEM usages\n");
-	else
-	{
-		__raw_writel(virt_to_phys(device_info), &(boot_shared_imem_cookie_ptr->device_info_addr));
-		__raw_writel(strlen(device_info), &(boot_shared_imem_cookie_ptr->device_info_size));
 	}
 
 	np = of_find_compatible_node(NULL, NULL,
@@ -655,6 +589,8 @@ skip_sysfs_create:
 		scm_deassert_ps_hold_supported = true;
 
 	set_dload_mode(download_mode);
+	if (!download_mode)
+		scm_disable_sdi();
 
 	return 0;
 
