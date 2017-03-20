@@ -182,7 +182,6 @@ typedef struct
     param_product_desc_head_t sid_head;
     /* Only for wlan evm chip */
     int use_special_boarddata;
-
     //Add value must below here
 }param_misc_t;
 
@@ -292,8 +291,6 @@ int get_param_gamma_select(uint * gamma_select);
 int get_param_pcba_number(char * pcbe_number);
 /* Only for wlan evm chip */
 int get_param_nvm_boarddata(uint * nvm_boarddata_select);
-
-
 int set_param_lcm_srgb_mode(uint * lcm_srgb_mdoe);
 int get_param_lcm_srgb_mode(uint *lcm_srgb_mode);
 int set_param_lcm_adobe_rgb_mode(uint * lcm_adobe_rgb_mode);
@@ -303,15 +300,12 @@ int get_param_lcm_dci_p3_mode(uint *lcm_dci_p3_mode);
 
 
 int get_param_download_info(param_download_t *download_info);
-
 int get_param_crash_record_count(uint *crash_record_count);
 int set_param_crash_record_count(uint *crash_record_count);
 int set_param_crash_record_value(uint offset, char *crash_record_value, uint size);
 
-
 int get_param_charger_type_count(uint *type_record_count);
 int set_param_charger_type_count(uint *type_record_count);
 int set_param_charger_type_value(uint offset, char *crash_record_value, uint size);
-
 
 #endif

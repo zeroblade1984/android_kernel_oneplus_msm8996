@@ -35,7 +35,6 @@
 
 #include <linux/gpio.h>
 
-//the same value come from smp2p_sleepstate.c file
 extern int slst_gpio_base_id;
 #define PROC_AWAKE_ID 12 /* 12th bit */
 

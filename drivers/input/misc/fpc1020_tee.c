@@ -284,6 +284,7 @@ extern bool virtual_key_enable;
 bool key_home_pressed = false;
 EXPORT_SYMBOL(key_home_pressed);
 
+
 static ssize_t report_home_set(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t count)
 {
@@ -312,6 +313,13 @@ static ssize_t report_home_set(struct device *dev,
             input_sync(fpc1020->input_dev);
         }
 	}
+    else if (!strncmp(buf, "timeout", strlen("timeout")))
+    {
+      input_report_key(fpc1020->input_dev,KEY_F2,1);
+      input_sync(fpc1020->input_dev);
+      input_report_key(fpc1020->input_dev,KEY_F2,0);
+      input_sync(fpc1020->input_dev);
+    }
 	else
 		return -EINVAL;
     if(virtual_key_enable){

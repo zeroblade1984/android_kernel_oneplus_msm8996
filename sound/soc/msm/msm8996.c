@@ -1707,6 +1707,8 @@ static int msm8996_hdmi_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 }
 
 
+
+//static int msm8996_mi2s_snd_startup(struct snd_pcm_substream *substream)
 static int legacy_msm8996_mi2s_snd_startup(struct snd_pcm_substream *substream)
 {
 	int ret = 0;
@@ -1730,6 +1732,8 @@ err:
 	return ret;
 }
 
+
+//static void msm8996_mi2s_snd_shutdown(struct snd_pcm_substream *substream)
 static void legacy_msm8996_mi2s_snd_shutdown(struct snd_pcm_substream *substream)
 {
 	int ret = 0;
@@ -3813,6 +3817,8 @@ static struct snd_soc_dai_link msm8996_common_be_dai_links[] = {
 		.no_pcm = 1,
 		.dpcm_capture = 1,
 		.be_id = MSM_BACKEND_DAI_TERTIARY_MI2S_TX,
+//		.be_hw_params_fixup = msm_tx_be_hw_params_fixup,
+//		.ops = &msm8996_mi2s_be_ops,
 		.be_hw_params_fixup = msm_tert_mi2s_tx_be_hw_params_fixup,
 		.ops = &legacy_msm8996_mi2s_be_ops,
 		.ignore_suspend = 1,

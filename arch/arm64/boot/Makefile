@@ -13,14 +13,11 @@
 #
 # Based on the ia64 boot/Makefile.
 #
-ifdef CONFIG_ONEPLUS3_BLD
 include $(srctree)/arch/arm64/boot/dts/15801_DVT/Makefile
 include $(srctree)/arch/arm64/boot/dts/15801_PVT/Makefile
-else if CONFIG_ONEPLUS3T_BLD
 include $(srctree)/arch/arm64/boot/dts/15811_PVT/Makefile
 include $(srctree)/arch/arm64/boot/dts/15811_PVT2/Makefile
 include $(srctree)/arch/arm64/boot/dts/15811_PVT3/Makefile
-endif
 
 targets := Image Image.gz
 

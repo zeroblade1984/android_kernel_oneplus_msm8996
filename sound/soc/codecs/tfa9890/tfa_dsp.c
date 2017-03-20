@@ -2393,7 +2393,6 @@ int tfaRunSpeakerQuickBoost(struct tfa98xx *tfa98xx, int force)
 		ret = tfa98xx_dsp_power_up(tfa98xx);
 	}
 
-//	tfa98xx_unmute(tfa98xx);
 
 	return ret;
 }

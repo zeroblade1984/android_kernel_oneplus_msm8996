@@ -909,7 +909,6 @@ static inline int wants_signal(int sig, struct task_struct *p)
 {
 	if (sigismember(&p->blocked, sig))
 		return 0;
-	//add for PF_EXITING task to be killed
 	if ((p->flags & PF_EXITING) && (current == p) && (sig == SIGKILL))
 		return 1;
 	if (p->flags & PF_EXITING)
@@ -1048,11 +1047,17 @@ static int __send_signal(int sig, struct siginfo *info, struct task_struct *t,
 
 	result = TRACE_SIGNAL_IGNORED;
 
-		if(print_key_process_murder) {
-			if(!strcmp(t->comm, "system_server") || is_zygote_process(t) || !strcmp(t->comm, "surfaceflinger") || !strcmp(t->comm, "servicemanager")) {
-			   printk( "process %d:%s send sig:%d to process %d:%s\n", current->pid, current->comm,sig, t->pid, t->comm);
-		    }
+	if(print_key_process_murder) {
+		if(!strcmp(t->comm, "system_server") ||
+			is_zygote_process(t) ||
+			!strcmp(t->comm, "surfaceflinger") ||
+			!strcmp(t->comm, "servicemanager"))
+		{
+			struct task_struct *tg = current->group_leader;
+			printk("process %d:%s, %d:%s send sig:%d to process %d:%s\n",
+					tg->pid, tg->comm, current->pid, current->comm, sig, t->pid, t->comm);
 		}
+	}
 
 	
 	if (!prepare_signal(sig, t,

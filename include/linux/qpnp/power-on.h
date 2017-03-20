@@ -72,7 +72,9 @@ enum pon_restart_reason {
 
 #define FASTBOOT_MODE          0x77665500
 #define RECOVERY_MODE          0x77665502
+//#define AGING_MODE          0x77665510
 #define ALARM_BOOT             0x77665503
+//#define DM_VERITY_LOGGING    0x77665508
 //#define DM_VERITY_ENFORCING  0x77665509
 //#define DM_VERITY_KEYSCLEAR  0x7766550A
 #define FACTORY_MODE           0x77665504

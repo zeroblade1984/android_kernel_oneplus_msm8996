@@ -44,6 +44,9 @@ struct cpufreq_suspend_t {
 };
 
 static DEFINE_PER_CPU(struct cpufreq_suspend_t, suspend_data);
+#ifdef CONFIG_CPU_FREQ_LIMIT_BOOT_CURRENT
+unsigned int cluster1_first_cpu = 0;
+#endif
 
 static int set_cpu_freq(struct cpufreq_policy *policy, unsigned int new_freq,
 			unsigned int index)
@@ -674,7 +677,15 @@ static int __init msm_cpufreq_probe(struct platform_device *pdev)
 				devm_kfree(dev, ftbl);
 			}
 			ftbl = per_cpu(freq_table, cpu - 1);
+#ifdef CONFIG_CPU_FREQ_LIMIT_BOOT_CURRENT
+		} else {
+			if(!IS_ERR(ftbl))
+				cluster1_first_cpu = cpu;
+			//pr_info("cluster1_first_cpu: %d",cluster1_first_cpu);
 		}
+#else
+		}
+#endif
 		per_cpu(freq_table, cpu) = ftbl;
 	}
 

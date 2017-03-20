@@ -26,6 +26,7 @@
 #include "mdss_dsi.h"
 #include "mdss_dba_utils.h"
 
+/*get lcd manufacture information yankelong add 2045-11-10*/
 #include <linux/project_info.h>
 
 #define DT_CMD_HDR 6
@@ -161,6 +162,7 @@ int mdss_dsi_panel_cmd_read(struct mdss_dsi_ctrl_pdata *ctrl, char cmd0,
 
 	return mdss_dsi_cmdlist_put(ctrl, &cmdreq);
 }
+
 static void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
 			struct dsi_panel_cmds *pcmds, u32 flags)
 {
@@ -189,6 +191,7 @@ static void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
 
 	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
 }
+
 
 static char led_pwm1[2] = {0x51, 0x0};	/* DTYPE_DCS_WRITE1 */
 static struct dsi_cmd_desc backlight_cmd = {
@@ -292,6 +295,7 @@ int mdss_dsi_panel_get_adobe_rgb_mode(struct mdss_dsi_ctrl_pdata *ctrl)
 {
    return ctrl->Adobe_RGB_mode;
 }
+
 int mdss_dsi_panel_set_dci_p3_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 {
 	struct dsi_panel_cmds *dci_p3_on_cmds,*dci_p3_off_cmds;
@@ -319,6 +323,7 @@ int mdss_dsi_panel_get_dci_p3_mode(struct mdss_dsi_ctrl_pdata *ctrl)
 {
    return ctrl->dci_p3_mode;
 }
+
 
 static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
@@ -427,7 +432,6 @@ int vendor_lcd_power_on(struct mdss_panel_data *pdata, int enable)
 	return rc;
 
 }
-
 int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 {
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
@@ -540,13 +544,11 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 			gpio_free(ctrl_pdata->disp_en_gpio);
 		}
 		usleep_range(10 * 1000,10 * 1000);
-	
 		gpio_set_value((ctrl_pdata->rst_gpio), 0);
 		gpio_free(ctrl_pdata->rst_gpio);
 		if (gpio_is_valid(ctrl_pdata->mode_gpio))
 			gpio_free(ctrl_pdata->mode_gpio);
 			usleep_range(10 * 1000,10 * 1000);
-			
 	}
 
 exit:
@@ -987,7 +989,6 @@ static void mdss_dsi_panel_bl_ctrl(struct mdss_panel_data *pdata,
 
 	if(!bl_level)
 		count = 1;
-
 	if (pdata == NULL) {
 		pr_err("%s: Invalid input data\n", __func__);
 		return;
@@ -1047,7 +1048,6 @@ static void mdss_dsi_panel_bl_ctrl(struct mdss_panel_data *pdata,
 	}
 }
 
-extern  int mdss_oem_read_reg(struct mdss_dsi_ctrl_pdata *ctrl, struct dsi_panel_cmds *cmds);
 static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 {
 	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
@@ -1093,10 +1093,6 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
     if (mdss_dsi_panel_get_dci_p3_mode(ctrl)){
         mdss_dsi_panel_set_dci_p3_mode(ctrl, mdss_dsi_panel_get_dci_p3_mode(ctrl));
     }
-
-
-
-
 	if (pinfo->compression_mode == COMPRESSION_DSC)
 		mdss_dsi_panel_dsc_pps_send(ctrl, pinfo);
 
@@ -1224,7 +1220,6 @@ static void mdss_dsi_parse_trigger(struct device_node *np, char *trigger,
 	}
 }
 
-
 static int mdss_dsi_parse_dcs_cmds(struct device_node *np,
 		struct dsi_panel_cmds *pcmds, char *cmd_key, char *link_key)
 {
@@ -1312,6 +1307,8 @@ exit_free:
 	kfree(buf);
 	return -ENOMEM;
 }
+
+
 int mdss_panel_get_dst_fmt(u32 bpp, char mipi_mode, u32 pixel_packing,
 				char *dst_format)
 {
@@ -1472,6 +1469,58 @@ void mdss_dsi_panel_dsc_pps_send(struct mdss_dsi_ctrl_pdata *ctrl,
 	pcmds.link_state = DSI_LP_MODE;
 
 	mdss_dsi_panel_cmds_send(ctrl, &pcmds, CMD_REQ_COMMIT);
+}
+
+static int mdss_dsi_parse_hdr_settings(struct device_node *np,
+		struct mdss_panel_info *pinfo)
+{
+	int rc = 0;
+	struct mdss_panel_hdr_properties *hdr_prop;
+
+	if (!np) {
+		pr_err("%s: device node pointer is NULL\n", __func__);
+		return -EINVAL;
+	}
+
+	if (!pinfo) {
+		pr_err("%s: panel info is NULL\n", __func__);
+		return -EINVAL;
+	}
+
+	hdr_prop = &pinfo->hdr_properties;
+	hdr_prop->hdr_enabled = of_property_read_bool(np,
+		"qcom,mdss-dsi-panel-hdr-enabled");
+
+	if (hdr_prop->hdr_enabled) {
+		rc = of_property_read_u32_array(np,
+				"qcom,mdss-dsi-panel-hdr-color-primaries",
+				hdr_prop->display_primaries,
+				DISPLAY_PRIMARIES_COUNT);
+		if (rc) {
+			pr_info("%s:%d, Unable to read color primaries,rc:%u",
+					__func__, __LINE__,
+					hdr_prop->hdr_enabled = false);
+		}
+
+		rc = of_property_read_u32(np,
+			"qcom,mdss-dsi-panel-peak-brightness",
+			&(hdr_prop->peak_brightness));
+		if (rc) {
+			pr_info("%s:%d, Unable to read hdr brightness, rc:%u",
+				__func__, __LINE__, rc);
+			hdr_prop->hdr_enabled = false;
+		}
+
+		rc = of_property_read_u32(np,
+			"qcom,mdss-dsi-panel-blackness-level",
+			&(hdr_prop->blackness_level));
+		if (rc) {
+			pr_info("%s:%d, Unable to read hdr brightness, rc:%u",
+				__func__, __LINE__, rc);
+			hdr_prop->hdr_enabled = false;
+		}
+	}
+	return 0;
 }
 
 static int mdss_dsi_parse_dsc_version(struct device_node *np,
@@ -2821,6 +2870,9 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	rc = mdss_panel_parse_display_timings(np, &ctrl_pdata->panel_data);
 	if (rc)
 		return rc;
+	rc = mdss_dsi_parse_hdr_settings(np, pinfo);
+	if (rc)
+		return rc;
 
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->acl_cmds,
 		"qcom,mdss-dsi-panel-acl-command",
@@ -2831,6 +2883,7 @@ static int mdss_panel_parse_dt(struct device_node *np,
 
 	rc = of_property_read_u32(np, "qcom,mdss-dsi-acl-npayload", &tmp);
 	ctrl_pdata->acl_npayload = (!rc ? tmp : 0);
+
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->srgb_on_cmds,
 		"qcom,mdss-dsi-panel-srgb-on-command",
 		"qcom,mdss-dsi-srgb-command-state");
@@ -2852,6 +2905,7 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->dci_p3_off_cmds,
 		"qcom,mdss-dsi-panel-dci-p3-off-command",
 		"qcom,mdss-dsi-dci-p3-command-state");
+
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->hbm_on_cmds,
 		"qcom,mdss-dsi-panel-hbm-on-command",
 		"qcom,mdss-dsi-hbm-command-state");
@@ -2859,7 +2913,6 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->hbm_off_cmds,
 		"qcom,mdss-dsi-panel-hbm-off-command",
 		"qcom,mdss-dsi-hbm-command-state");
-
 	pinfo->mipi.rx_eot_ignore = of_property_read_bool(np,
 		"qcom,mdss-dsi-rx-eot-ignore");
 	pinfo->mipi.tx_eot_append = of_property_read_bool(np,
@@ -2992,10 +3045,9 @@ int mdss_dsi_panel_init(struct device_node *node,
 
 	push_component_info(LCD, (char *)panel_version, (char *)panel_manufacture);
 	push_component_info(BACKLIGHT, (char *)backlight_version, (char *)backlight_manufacture);
-
 	ctrl_pdata->high_brightness_panel= of_property_read_bool(node,
 					"qcom,mdss-dsi-high-brightness-panel");
-    pr_err("high brightness panel: %d\n", ctrl_pdata->high_brightness_panel);
+        pr_err("high brightness panel: %d\n", ctrl_pdata->high_brightness_panel);
 	ctrl_pdata->on = mdss_dsi_panel_on;
 	ctrl_pdata->post_panel_on = mdss_dsi_post_panel_on;
 	ctrl_pdata->off = mdss_dsi_panel_off;

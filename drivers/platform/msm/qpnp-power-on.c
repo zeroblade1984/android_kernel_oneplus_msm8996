@@ -956,7 +956,7 @@ static void press_work_func(struct work_struct *work)
 	struct qpnp_pon *pon =
 		container_of(work, struct qpnp_pon, press_work.work);
 	u8 pon_rt_sts = 0;
-	
+
 	cfg = qpnp_get_cfg(pon, PON_KPDPWR);
 	if (!cfg) {
 		dev_err(&pon->spmi->dev, "Invalid config pointer\n");

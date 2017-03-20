@@ -647,7 +647,6 @@ retry_tx_alloc:
 retry_rx_alloc:
 	mtpBufferOffset =0;
 	for (i = 0; i < RX_REQ_MAX; i++) {
-		//Anderson@, 2016/06/30, MTP can't work
 		req = mtp_request_new(dev->ep_out, mtp_rx_req_len, RX_BUFFER);
 		if (!req) {
 			if (mtp_rx_req_len <= MTP_BULK_BUFFER_SIZE)

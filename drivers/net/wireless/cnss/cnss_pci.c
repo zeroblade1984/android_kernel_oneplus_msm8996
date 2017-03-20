@@ -57,7 +57,6 @@
 #include <linux/project_info.h>
 static u32 fw_version;
 
-
 #define subsys_to_drv(d) container_of(d, struct cnss_data, subsys_desc)
 
 #define VREG_ON			1
@@ -1463,7 +1462,6 @@ static ssize_t cnss_version_information_show(struct device *dev,
 static DEVICE_ATTR(cnss_version_information, 0444,
                 cnss_version_information_show, NULL);
 
-
 static ssize_t wlan_setup_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -1721,7 +1719,6 @@ static int cnss_wlan_pci_probe(struct pci_dev *pdev,
 		goto err_pcie_suspend;
 	}
 
-
 	if (cnss_wlan_is_codeswap_supported(penv->revision_id)) {
 		pr_debug("Code-swap not enabled: %d\n", penv->revision_id);
 		goto err_pcie_suspend;
@@ -1772,7 +1769,6 @@ static void cnss_wlan_pci_remove(struct pci_dev *pdev)
 
 	dev = &penv->pldev->dev;
 	device_remove_file(dev, &dev_attr_cnss_version_information);
-
 	device_remove_file(dev, &dev_attr_wlan_setup);
 
 	if (penv->smmu_mapping)
@@ -3078,7 +3074,6 @@ skip_ramdump:
 
         /* product information */
         push_component_info(WCN, "QCA6164A", "QualComm");
-
 
 	pr_info("cnss: Platform driver probed successfully.\n");
 	return ret;

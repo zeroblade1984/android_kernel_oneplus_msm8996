@@ -222,6 +222,7 @@
 			qcom,fastchg-current-ma = <2000>;
 			qcom,float-voltage-mv = <4320>;
 			qcom,resume-delta-mv = <200>;
+			qcom,override-usb-current;
 			/* ibatmax setting for different temp regions */
 			qcom,ibatmax-little-cold-ma = <300>;
 			qcom,ibatmax-cool-ma = <400>;

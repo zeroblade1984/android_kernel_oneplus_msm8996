@@ -10,7 +10,6 @@
 // acl mode
 #define MDSS_OEM_ACL_MODE
 
-
 //srgb mode
 #define MDSS_OEM_SRGB_MODE
 

@@ -199,7 +199,6 @@ static int param_set_test(const char *val, struct kernel_param *kp)
 
 module_param_call(param_test, param_set_test, param_get_int, &param_test, 0644);
 
-// Anderson, 2016/08/03, Add angela status
 static int is_angela = 0;
 static int param_set_angela(const char *val, struct kernel_param *kp)
 {
@@ -231,7 +230,6 @@ static int param_get_angela(char *val, struct kernel_param *kp)
 
 module_param_call(is_angela, param_set_angela, param_get_angela, &is_angela, 0644);
 
-// Anderson, 2016/08/03, Add boot_stage and data_stage flag
 static int data_stage = 0;
 static int param_set_data_stage(const char *val, struct kernel_param *kp)
 {
@@ -756,7 +754,6 @@ int get_param_nvm_boarddata(uint * nvm_boarddata_select)
 	return ret;
 }
 EXPORT_SYMBOL(get_param_nvm_boarddata);
-
 
 int get_param_pcba_number(char *pcba_number_select)
 {

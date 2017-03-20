@@ -1988,7 +1988,7 @@ static int smbchg_set_usb_current_max(struct smbchg_chip *chip,
 
 		/* handle special SDP case when USB reports high current */
 		if (current_ma > CURRENT_900_MA) {
-			if (chip->cfg_override_usb_current) {
+			if (chip->cfg_override_usb_current && !chip->usb_enum_status) {
 				/*
 				 * allow setting the current value as reported
 				 * by USB driver.
@@ -5482,7 +5482,8 @@ static void handle_usb_insertion(struct smbchg_chip *chip)
 		if (chip->probe_success) {
 			schedule_delayed_work(&chip->check_switch_dash_work,
 					msecs_to_jiffies(500));
-			if (usb_supply_type == POWER_SUPPLY_TYPE_USB) {
+			if (usb_supply_type == POWER_SUPPLY_TYPE_USB
+				|| usb_supply_type == POWER_SUPPLY_TYPE_USB_CDP) {
 				schedule_delayed_work(&chip->non_standard_charger_check_work,
 						msecs_to_jiffies(NON_STANDARD_CHARGER_CHECK_MS));
 			}
@@ -6936,8 +6937,12 @@ static irqreturn_t fastchg_handler(int irq, void *_chip)
 	struct smbchg_chip *chip = _chip;
 
 	pr_smb(PR_INTERRUPT, "p2f triggered\n");
-	smbchg_detect_parallel_charger(chip);
-	smbchg_parallel_usb_check_ok(chip);
+
+	if (is_usb_present(chip) || is_dc_present(chip)) {
+		smbchg_detect_parallel_charger(chip);
+		smbchg_parallel_usb_check_ok(chip);
+	}
+
 	if (chip->psy_registered)
 		power_supply_changed(&chip->batt_psy);
 	smbchg_charging_status_change(chip);
@@ -7236,7 +7241,6 @@ static irqreturn_t src_detect_handler(int irq, void *_chip)
 		chip->usb_present, usb_present, src_detect,
 		chip->hvdcp_3_det_ignore_uv);
 
-	/* Yangfb modified to avoid wrong usb unplug detect when fastchg switch off in power off charge*/
 	chip->dash_on = get_prop_fast_chg_started(chip);
 	if (chip->dash_on) {
 		power_supply_set_supply_type(chip->usb_psy, POWER_SUPPLY_TYPE_DASH);
@@ -9382,11 +9386,10 @@ static void check_non_standard_charger_work(struct work_struct *work)
 
 		power_supply_set_supply_type(chip->usb_psy,
 				POWER_SUPPLY_TYPE_USB_DCP);
-		power_supply_set_current_limit(chip->usb_psy,
-				CURRENT_1500_MA * 1000);
+		chip->is_power_changed = true;
 		power_supply_changed(&chip->batt_psy);
-		pr_err("non-standard_charger detected, GPIO135=%d\n",
-				gpio_get_value(135));
+		pr_err("non-standard_charger detected, GPIO135=%d,aicl_limited_current=%d\n",
+				gpio_get_value(135),aicl_limited_current);
 		chip->non_std_chg_present = true;
 	}
 }

@@ -303,8 +303,7 @@ static int mdss_dsi_panel_power_off(struct mdss_panel_data *pdata)
 		pr_err("%s: failed to disable vregs for %s\n",
 			__func__, __mdss_dsi_pm_name(DSI_PANEL_PM));
 
-	vendor_lcd_power_on(pdata, 0); 
-
+	vendor_lcd_power_on(pdata, 0); //power off 1.8V
 end:
 	return ret;
 }
@@ -330,8 +329,7 @@ static int mdss_dsi_panel_power_on(struct mdss_panel_data *pdata)
 			__func__, __mdss_dsi_pm_name(DSI_PANEL_PM));
 		return ret;
 	}
-
-	vendor_lcd_power_on(pdata, 1); 
+	vendor_lcd_power_on(pdata, 1); //power on 1.8V 
 
 	/*
 	 * If continuous splash screen feature is enabled, then we need to
@@ -931,6 +929,7 @@ struct dentry *dsi_debugfs_create_dcs_cmd(const char *name, umode_t mode,
 	return debugfs_create_file(name, mode, parent,
 				   cmd, &mdss_dsi_cmd_fop);
 }
+
 #define DEBUGFS_CREATE_DCS_CMD(name, node, cmd, ctrl_cmd) \
 	dsi_debugfs_create_dcs_cmd(name, 0644, node, cmd, ctrl_cmd)
 
@@ -1350,7 +1349,6 @@ int mdss_dsi_on(struct mdss_panel_data *pdata)
 
 	pinfo = &pdata->panel_info;
 	mipi = &pdata->panel_info.mipi;
-
 	if (!ctrl_pdata->SRGB_first_on){
 		ctrl_pdata->SRGB_first_on = 1;
 		get_param_lcm_srgb_mode(&(ctrl_pdata->SRGB_mode));
@@ -1444,6 +1442,7 @@ int mdss_dsi_on(struct mdss_panel_data *pdata)
 	 * data lanes for LP11 init
 	 */
 	if (mipi->lp11_init) {
+		
 		usleep_range(5 * 1000,5 * 1000);
 		if (mdss_dsi_pinctrl_set_state(ctrl_pdata, true))
 			pr_debug("reset enable: pinctrl not enabled\n");
@@ -1666,7 +1665,7 @@ static int mdss_dsi_blank(struct mdss_panel_data *pdata, int power_state)
 		if (mdss_dsi_is_te_based_esd(ctrl_pdata)) {
 			if (mdss_dsi_is_te_based_esd(ctrl_pdata))
 				cancel_delayed_work_sync(&(ctrl_pdata->techeck_work));
-			atomic_dec(&ctrl_pdata->te_irq_ready);
+				atomic_dec(&ctrl_pdata->te_irq_ready);
 		}
 		mdss_dsi_set_tear_off(ctrl_pdata);
 	}
