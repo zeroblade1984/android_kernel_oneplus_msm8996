@@ -80,7 +80,6 @@
 #define RESET_ONESECOND
 //#define SUPPORT_GLOVES_MODE
 //#define REPORT_2D_PRESSURE
-#define SUPPORT_VIRTUAL_KEY
 
 
 #define SUPPORT_TP_SLEEP_MODE
@@ -265,6 +264,7 @@ static int F12_2D_QUERY_BASE;
 static int F12_2D_CMD_BASE;
 static int F12_2D_CTRL_BASE;
 static int F12_2D_DATA_BASE;
+static int F12_2D_DATA15; 
 
 static int F34_FLASH_QUERY_BASE;
 static int F34_FLASH_CMD_BASE;
@@ -486,9 +486,6 @@ struct synaptics_ts_data {
 	char test_limit_name[TP_FW_NAME_MAX_LEN];
 	char fw_id[12];
 	char manu_name[10];
-#ifdef SUPPORT_VIRTUAL_KEY
-        struct kobject *properties_kobj;
-#endif
 
 	ktime_t timestamp;
 	struct work_struct pm_work;
@@ -1278,13 +1275,13 @@ Left2RightSwip:%d Right2LeftSwip:%d Up2DownSwip:%d Down2UpSwip:%d\n",
 #ifdef REPORT_2D_PRESSURE
 static unsigned char pres_value = 1;
 #endif
-#ifdef SUPPORT_VIRTUAL_KEY //WayneChang, 2015/12/02, add for key to abs, simulate key in abs through virtual key system
-extern struct completion key_cm;
-#endif
 void int_touch(void)
 {
 	int ret = -1,i = 0;
-	uint8_t buf[80];
+	uint8_t buf[90];
+	uint8_t count_data = 0;
+	uint8_t object_attention[2];
+	uint16_t total_status = 0;
 	uint8_t finger_num = 0;
 	uint8_t finger_status = 0;
 	struct point_info points;
@@ -1322,9 +1319,32 @@ void int_touch(void)
     }
 #endif
 	ret = i2c_smbus_write_byte_data(ts->client, 0xff, 0x0);
-	ret = synaptics_rmi4_i2c_read_block(ts->client, F12_2D_DATA_BASE, 80, buf);
+	if(version_is_s3508)
+		F12_2D_DATA15 = 0x0009;
+	else
+		F12_2D_DATA15 = 0x000C;
+	ret = synaptics_rmi4_i2c_read_block(ts->client, F12_2D_DATA15, 2, object_attention);
+    if (ret < 0) {
+        TPD_ERR("synaptics_int_touch F12_2D_DATA15: i2c_transfer failed\n");
+        goto INT_TOUCH_END;
+    }
+	total_status = (object_attention[1] << 8) | object_attention[0];
+
+	if(total_status){
+		while(total_status){
+			count_data++;
+			total_status >>= 1;
+		}
+	}else{
+		count_data = 0;
+	}
+    if(count_data > 10){
+        TPD_ERR("synaptics_int_touch count_data is %d\n", count_data);
+        goto INT_TOUCH_END;
+    }
+	ret = synaptics_rmi4_i2c_read_block(ts->client, F12_2D_DATA_BASE, count_data*8+1, buf);
 	if (ret < 0) {
-		TPD_ERR("synaptics_int_touch: i2c_transfer failed\n");
+		TPD_ERR("synaptics_int_touch F12_2D_DATA_BASE: i2c_transfer failed\n");
 		goto INT_TOUCH_END;
 	}
 
@@ -1333,7 +1353,7 @@ void int_touch(void)
 	input_event(ts->input_dev, EV_SYN, SYN_TIME_NSEC,
 			ktime_to_timespec(ts->timestamp).tv_nsec);
 
-	for( i = 0; i < ts->max_num; i++ ) {
+	for( i = 0; i < count_data; i++ ) {
 		points.status = buf[i*8];
 		points.x = ((buf[i*8+2]&0x0f)<<8) | (buf[i*8+1] & 0xff);
 		points.raw_x = buf[i*8+6] & 0x0f;
@@ -1361,7 +1381,6 @@ void int_touch(void)
 #ifndef TYPE_B_PROTOCOL
 			input_mt_sync(ts->input_dev);
 #endif
-            complete(&key_cm);
 			finger_num++;
 			finger_info |= 1 ;
 			//TPD_DEBUG("%s: Finger %d: status = 0x%02x "
@@ -1370,6 +1389,7 @@ void int_touch(void)
 
 		}
 	}
+	finger_info <<= (ts->max_num - count_data);
 
 	for ( i = 0; i < ts->max_num; i++ )
 	{
@@ -1529,7 +1549,6 @@ static irqreturn_t synaptics_irq_thread_fn(int irq, void *dev_id)
 }
 #endif
 
-//wangwenxue@BSP add for change baseline_test to "proc\touchpanel\baseline_test"  begin
 static ssize_t tp_baseline_test_read_func(struct file *file, char __user *user_buf, size_t count, loff_t *ppos)
 {
 	char page[PAGESIZE];
@@ -1671,9 +1690,9 @@ static ssize_t gesture_switch_write_func(struct file *file, const char __user *p
 
 static void gesture_enable(struct synaptics_ts_data *ts)
 {
-	ts->gesture_enable = double_tap_enable || letter_o_enable || down_arrow_enable || up_arrow_enable
-			|| left_arrow_enable || right_arrow_enable || double_swipe_enable || right_swipe_enable
-			|| left_swipe_enable || down_swipe_enable || up_swipe_enable ? 1 : 0;
+	ts->gesture_enable = double_tap_enable || letter_o_enable || down_arrow_enable || up_arrow_enable ||
+		left_arrow_enable || right_arrow_enable || double_swipe_enable || right_swipe_enable ||
+		left_swipe_enable || down_swipe_enable || up_swipe_enable ? 1 : 0;
 }
 
 // chenggang.li@BSP.TP modified for oem 2014-08-08 create node
@@ -3962,61 +3981,6 @@ static void synaptics_suspend_resume(struct work_struct *work)
 	}
 }
 
-#ifdef SUPPORT_VIRTUAL_KEY
-#define VK_KEY_X    180
-#define VK_CENTER_Y 2020//2260
-#define VK_WIDTH    170
-#define VK_HIGHT    200
-static ssize_t vk_syna_show(struct kobject *kobj,
-        struct kobj_attribute *attr, char *buf)
-{
-    int len ;
-
-    len =  sprintf(buf,
-            __stringify(EV_KEY) ":" __stringify(KEY_APPSELECT)  ":%d:%d:%d:%d"
-            ":" __stringify(EV_KEY) ":" __stringify(KEY_HOMEPAGE)  ":%d:%d:%d:%d"
-            ":" __stringify(EV_KEY) ":" __stringify(KEY_BACK)  ":%d:%d:%d:%d" "\n",
-            VK_KEY_X,   VK_CENTER_Y, VK_WIDTH, VK_HIGHT,
-            VK_KEY_X*3, VK_CENTER_Y, VK_WIDTH, VK_HIGHT,
-            VK_KEY_X*5, VK_CENTER_Y, VK_WIDTH, VK_HIGHT);
-
-    return len ;
-}
-
-static struct kobj_attribute vk_syna_attr = {
-    .attr = {
-        .name = "virtualkeys."TPD_DEVICE,
-        .mode = S_IRUGO,
-    },
-    .show = &vk_syna_show,
-};
-
-static struct attribute *syna_properties_attrs[] = {
-    &vk_syna_attr.attr,
-    NULL
-};
-
-static struct attribute_group syna_properties_attr_group = {
-    .attrs = syna_properties_attrs,
-};
-static int synaptics_ts_init_virtual_key(struct synaptics_ts_data *ts )
-{
-    int ret = 0;
-
-    /* virtual keys */
-    if(ts->properties_kobj)
-        return 0 ;
-    ts->properties_kobj = kobject_create_and_add("board_properties", NULL);
-    if (ts->properties_kobj)
-        ret = sysfs_create_group(ts->properties_kobj, &syna_properties_attr_group);
-
-    if (!ts->properties_kobj || ret)
-        printk("%s: failed to create board_properties\n", __func__);
-    /* virtual keys */
-    return ret;
-}
-#endif
-
 static int synaptics_ts_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 #ifdef CONFIG_SYNAPTIC_RED
@@ -4220,9 +4184,6 @@ static int synaptics_ts_probe(struct i2c_client *client, const struct i2c_device
 		TPDTM_DMESG("driver_create_file failt\n");
 		goto exit_init_failed;
 	}
-#ifdef SUPPORT_VIRTUAL_KEY
-    synaptics_ts_init_virtual_key(ts);
-#endif
 #ifdef CONFIG_SYNAPTIC_RED
 	premote_data = remote_alloc_panel_data();
 	if(premote_data) {
@@ -4398,6 +4359,8 @@ static int synaptics_i2c_suspend(struct device *dev)
 		return -1;
 	}
     if(ts->support_hw_poweroff && (ts->gesture_enable == 0)){
+		atomic_set(&ts->is_stop,1);
+		touch_disable(ts);
 	    ret = tpd_power(ts,0);
 	    if (ret < 0)
 	        TPD_ERR("%s power off err\n",__func__);
